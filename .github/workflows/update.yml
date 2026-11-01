@@ -1,0 +1,41 @@
+name: チャート一覧を更新
+
+on:
+  schedule:
+    - cron: "0 22 * * 0-4"   # 日本時間 平日 7:00（米国市場の終値のあと）
+    - cron: "30 7 * * 1-5"   # 日本時間 平日 16:30（東証の終値のあと）
+  workflow_dispatch:          # Actions の画面から手動でも動かせる
+
+permissions:
+  contents: write             # 作ったページを gh-pages ブランチに置くため
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m screener.gallery --out site/index.html
+      # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
+      # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
+      - name: gh-pages に公開
+        working-directory: site
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html .nojekyll
+          git commit -q -m "チャート一覧を更新 $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
