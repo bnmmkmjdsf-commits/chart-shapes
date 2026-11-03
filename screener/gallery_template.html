@@ -116,7 +116,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
+  color: inherit;
+  text-decoration: none;
 }
+.card:hover { border-color: var(--accent); }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .card .name {
   min-width: 0;
@@ -167,6 +171,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
+    <p>カードを押すと、株探の銘柄ページが開きます。</p>
     <p>点線は1ヶ月前の株価の高さ、右端の点が直近の終値です。株価は Yahoo Finance の日足（分割・配当調整済み）。</p>
     <p>日本株は東証の全銘柄、米国株は時価総額3億ドル以上の銘柄が対象で、形ごとに時価総額の大きい順に最大60銘柄を載せています。</p>
     <p>形の判定はこのページ独自のもので、証券会社アプリの件数とは一致しません。</p>
@@ -187,6 +192,10 @@ const STEP = 30;
 const state = { market: "jp", shape: ORDER[0], shown: STEP };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// 銘柄の詳細は株探へ。米国株のクラス株は株探では BRK-B ではなく BRK.B の形
+const detailUrl = (code) => state.market === "jp"
+  ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
+  : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
 const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%";
 
 function spark(values) {
@@ -224,11 +233,11 @@ function render() {
   document.getElementById("listhead").innerHTML =
     `<strong>${esc(state.shape)}</strong>${group.count.toLocaleString()}銘柄のうち、時価総額の大きい順に${list.length}銘柄`;
   document.getElementById("grid").innerHTML = list.map((s) => `
-    <article class="card">
+    <a class="card" href="${esc(detailUrl(s.code))}" target="_blank" rel="noopener">
       <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span><span class="chg">${pct(s.change)}</span></div>
       <span class="code">${esc(s.code)}</span>
       ${spark(s.spark)}
-    </article>`).join("");
+    </a>`).join("");
   document.getElementById("more").hidden = state.shown >= group.stocks.length;
 }
 
