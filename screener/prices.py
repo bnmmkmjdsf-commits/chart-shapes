@@ -93,11 +93,11 @@ def fetch_jp_quotes(log=print):
 
 
 def fetch_weekly(symbols, log=print, chunk=500):
-    """直近2年の週足。open / high / low / close の表（行が週、列が銘柄）を返す。
+    """直近2年の週足。open / high / low / close / volume の表（行が週、列が銘柄）を返す。
 
     株式分割は調整済み、配当は未調整（証券会社アプリのチャートと同じ値になる）。今週の途中までの足も含む。
     """
-    parts = {"open": [], "high": [], "low": [], "close": []}
+    parts = {"open": [], "high": [], "low": [], "close": [], "volume": []}
     for i in range(0, len(symbols), chunk):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")  # yfinance が出す pandas の非推奨警告
@@ -110,8 +110,8 @@ def fetch_weekly(symbols, log=print, chunk=500):
     return align_weeks({key: pd.concat(frames, axis=1) for key, frames in parts.items()})
 
 
-# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後）
-WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last"}
+# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後、出来高は合計）
+WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 
 def align_weeks(bars):
