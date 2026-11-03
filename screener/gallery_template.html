@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- 個人用のページなので検索エンジンには載せない -->
 <meta name="robots" content="noindex">
-<title>日米チャート形状</title>
+<title>日米 押し目候補</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場の切り替え → 4つの形のタイル（2×2）→ 1ヶ月チャートのカード（狭い画面は2列、広い画面は列を増やす） */
+/* レイアウト: 見出し → 市場の切り替え → 線の凡例 → 週足チャートのカード（スマホは1列、広い画面は列を増やす） */
 :root {
   --bg: #f3f5f9;
   --surface: #ffffff;
@@ -18,8 +18,13 @@
   --fg: #15213a;
   --muted: #5b6880;
   --accent: #2160d0;
-  --accent-soft: rgba(33, 96, 208, 0.10);
   --on-accent: #ffffff;
+  --band: rgba(33, 96, 208, 0.12);
+  --up: #d93f45;      /* 陽線（証券会社アプリと同じく赤） */
+  --down: #22936a;    /* 陰線（緑） */
+  --ma13: #b88700;
+  --ma26: #e0662f;
+  --ma52: #1f8a8a;
   --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
@@ -31,8 +36,13 @@
     --fg: #e6ebf5;
     --muted: #8f9bb2;
     --accent: #6b9fff;
-    --accent-soft: rgba(107, 159, 255, 0.14);
     --on-accent: #0c1324;
+    --band: rgba(107, 159, 255, 0.16);
+    --up: #f0656a;
+    --down: #3dbb84;
+    --ma13: #e6c34a;
+    --ma26: #f08a5d;
+    --ma52: #5cc1c1;
     color-scheme: dark;
   }
 }
@@ -43,25 +53,30 @@
   --fg: #e6ebf5;
   --muted: #8f9bb2;
   --accent: #6b9fff;
-  --accent-soft: rgba(107, 159, 255, 0.14);
   --on-accent: #0c1324;
+  --band: rgba(107, 159, 255, 0.16);
+  --up: #f0656a;
+  --down: #3dbb84;
+  --ma13: #e6c34a;
+  --ma26: #f08a5d;
+  --ma52: #5cc1c1;
   color-scheme: dark;
 }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; -webkit-text-size-adjust: 100%; }
 [hidden] { display: none !important; }
 .wrap {
-  max-width: 1080px;
+  max-width: 1200px;
   margin: 0 auto;
   padding-block: 20px 40px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 h1 { font-size: 1.375rem; font-weight: 600; margin: 0; text-wrap: balance; }
-.sub { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; }
+.sub { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; line-height: 1.5; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .market {
@@ -83,36 +98,22 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   border-radius: 999px;
 }
 .market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
-.shapes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-@media (min-width: 720px) { .shapes { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.shape {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  text-align: left;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-}
-.shape .meta { display: flex; align-items: center; gap: 10px; }
-.shape svg { flex: none; width: 40px; height: 24px; color: var(--muted); }
-.shape path { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.shape .name { font-weight: 600; font-size: 0.9375rem; white-space: nowrap; }
-.shape .count { font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.shape[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.shape[aria-pressed="true"] svg { color: var(--accent); }
-.listhead { margin: 4px 0 0; font-size: 0.8125rem; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
+.legend .k13 { border-color: var(--ma13); }
+.legend .k26 { border-color: var(--ma26); }
+.legend .k52 { border-color: var(--ma52); }
+.legend .kband { width: 10px; height: 12px; border: 0; background: var(--band); }
+.listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .card {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 10px 6px;
+  padding: 12px 12px 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
@@ -121,24 +122,20 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .card:hover { border-color: var(--accent); }
 .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.card .name {
-  min-width: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.card .chg { flex: none; font-family: var(--font-num); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-.card .code { font-family: var(--font-num); font-size: 0.6875rem; color: var(--muted); }
-.card svg { display: block; width: 100%; height: auto; margin-top: 4px; }
-.base { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
-.area { fill: var(--accent-soft); stroke: none; }
-.line { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
-.dot { fill: var(--accent); stroke: none; }
+.card .top, .card .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card .name { min-width: 0; font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .vs { flex: none; font-family: var(--font-num); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.card .meta { font-family: var(--font-num); font-size: 0.6875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
+.band { fill: var(--band); stroke: none; }
+.up line, .up rect { stroke: var(--up); fill: var(--up); }
+.down line, .down rect { stroke: var(--down); fill: var(--down); }
+.up line, .down line { stroke-width: 1; }
+.up rect, .down rect { stroke-width: 0; }
+.ma13, .ma26, .ma52 { fill: none; stroke-width: 1.4; stroke-linejoin: round; }
+.ma13 { stroke: var(--ma13); }
+.ma26 { stroke: var(--ma26); stroke-width: 1.8; }
+.ma52 { stroke: var(--ma52); }
 #more {
   appearance: none;
   align-self: center;
@@ -155,8 +152,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <body>
 <main class="wrap">
   <header>
-    <h1>チャートの形で探す</h1>
-    <p class="sub" id="asof">直近1ヶ月の値動き</p>
+    <h1>週足の押し目候補</h1>
+    <p class="sub" id="sub">右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形</p>
   </header>
 
   <div class="market" role="tablist" aria-label="市場">
@@ -164,94 +161,85 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" id="tab-us" data-market="us" aria-selected="false">米国株</button>
   </div>
 
-  <div class="shapes" id="shapes"></div>
+  <div class="legend" aria-label="チャートの見方">
+    <span><i class="k13"></i>13週線</span>
+    <span><i class="k26"></i>26週線</span>
+    <span><i class="k52"></i>52週線</span>
+    <span><i class="kband"></i>下ひげを付けた週</span>
+  </div>
 
   <p class="listhead" id="listhead"></p>
   <div class="grid" id="grid"></div>
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>カードを押すと、株探の銘柄ページが開きます。</p>
-    <p>点線は1ヶ月前の株価の高さ、右端の点が直近の終値です。株価は Yahoo Finance の日足（分割・配当調整済み）。</p>
-    <p>日本株は東証の全銘柄、米国株は時価総額3億ドル以上の銘柄が対象で、形ごとに時価総額の大きい順に最大60銘柄を載せています。</p>
-    <p>形の判定はこのページ独自のもので、証券会社アプリの件数とは一致しません。</p>
+    <p>条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に26週線まで届いて下ひげ（値幅の2割以上）を付けた週がある。終値は52週線より上。</p>
+    <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
+    <p>株価は Yahoo Finance の週足。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
 
 <script>
 const DATA = __DATA__;
-const ORDER = ["もみ合い?", "リバウンド?", "下落?", "下げとまった?"];
-// タイルの矢印（線と矢じり）。証券会社アプリのアイコンに合わせた形
-const ICONS = {
-  "もみ合い?": ["M2 14 L8 9 L14 15 L20 9 L26 14 L36 12", "M31 8 L36 12 L31 16"],
-  "リバウンド?": ["M3 5 L15 17 L33 5", "M26 5 L33 5 L30 11"],
-  "下落?": ["M2 4 L10 11 L14 8 L22 15 L26 12 L34 20", "M33 14 L34 20 L28 19"],
-  "下げとまった?": ["M4 3 L18 17 L36 17", "M31 13 L36 17 L31 21"],
-};
-const STEP = 30;
-const state = { market: "jp", shape: ORDER[0], shown: STEP };
+const STEP = 20;
+const state = { market: "jp", shown: STEP };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%";
 // 銘柄の詳細は株探へ。米国株のクラス株は株探では BRK-B ではなく BRK.B の形
 const detailUrl = (code) => state.market === "jp"
   ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
   : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
-const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%";
 
-function spark(values) {
-  const W = 160, H = 64, P = 6;
-  const min = Math.min(...values), max = Math.max(...values);
+function chart(s) {
+  const W = 320, H = 160, P = 6, n = s.c.length;
+  const values = [...s.h, ...s.l, ...s.ma13, ...s.ma26, ...s.ma52].filter((v) => v != null);
+  const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
-  const x = (i) => (i / (values.length - 1)) * W;
+  const step = W / n, body = Math.max(1, step * 0.62);
+  const x = (i) => (i + 0.5) * step;
   const y = (v) => P + ((max - v) / span) * (H - 2 * P);
-  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const last = values.length - 1;
-  // 期間の初日を100とした値なので、100 の高さが1ヶ月前の株価
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近1ヶ月の値動き">
-    <line class="base" x1="0" x2="${W}" y1="${y(100).toFixed(1)}" y2="${y(100).toFixed(1)}"></line>
-    <polygon class="area" points="0,${H} ${pts} ${W},${H}"></polygon>
-    <polyline class="line" points="${pts}"></polyline>
-    <circle class="dot" cx="${x(last).toFixed(1)}" cy="${y(values[last]).toFixed(1)}" r="2.8"></circle>
+  const f = (v) => v.toFixed(1);
+
+  const band = `<rect class="band" x="${f(s.signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>`;
+  const line = (arr, cls) => {
+    const pts = arr.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
+    return `<polyline class="${cls}" points="${pts}"></polyline>`;
+  };
+  const candles = s.c.map((c, i) => {
+    const o = s.o[i], h = s.h[i], l = s.l[i];
+    if ([o, h, l, c].some((v) => v == null)) return "";
+    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
+    return `<g class="${c >= o ? "up" : "down"}">
+      <line x1="${f(x(i))}" x2="${f(x(i))}" y1="${f(y(h))}" y2="${f(y(l))}"></line>
+      <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
+    </g>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近1年の週足チャート">
+    ${band}${line(s.ma52, "ma52")}${line(s.ma26, "ma26")}${line(s.ma13, "ma13")}${candles}
   </svg>`;
 }
 
 function render() {
   const market = DATA[state.market];
-  const group = market.shapes[state.shape];
-  const list = group.stocks.slice(0, state.shown);
-
+  const list = market.stocks.slice(0, state.shown);
   document.querySelectorAll("[data-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
-  document.getElementById("asof").textContent = `直近1ヶ月の値動き（${market.asOf} 終値まで）`;
-  document.getElementById("shapes").innerHTML = ORDER.map((name) => `
-    <button type="button" class="shape" data-shape="${esc(name)}" aria-pressed="${name === state.shape}">
-      <span class="name">${esc(name)}</span>
-      <span class="meta">
-        <svg viewBox="0 0 40 24" aria-hidden="true"><path d="${ICONS[name][0]}"></path><path d="${ICONS[name][1]}"></path></svg>
-        <span class="count">${market.shapes[name].count.toLocaleString()}銘柄</span>
-      </span>
-    </button>`).join("");
+  document.getElementById("sub").textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
   document.getElementById("listhead").innerHTML =
-    `<strong>${esc(state.shape)}</strong>${group.count.toLocaleString()}銘柄のうち、時価総額の大きい順に${list.length}銘柄`;
+    `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
   document.getElementById("grid").innerHTML = list.map((s) => `
     <a class="card" href="${esc(detailUrl(s.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span><span class="chg">${pct(s.change)}</span></div>
-      <span class="code">${esc(s.code)}</span>
-      ${spark(s.spark)}
+      <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span><span class="vs">26週線 ${pct(s.vsMa26)}</span></div>
+      <div class="meta"><span>${esc(s.code)}</span><span>13週高値から ${pct(s.offHigh)}</span></div>
+      ${chart(s)}
     </a>`).join("");
-  document.getElementById("more").hidden = state.shown >= group.stocks.length;
+  document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
 document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
   state.market = b.dataset.market;
-  state.shown = STEP;
-  render();
-});
-document.getElementById("shapes").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-shape]");
-  if (!b) return;
-  state.shape = b.dataset.shape;
   state.shown = STEP;
   render();
 });

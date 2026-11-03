@@ -92,6 +92,41 @@ def fetch_jp_quotes(log=print):
     return pd.DataFrame(rows).drop_duplicates("symbol")
 
 
+def fetch_weekly(symbols, log=print, chunk=500):
+    """直近2年の週足。open / high / low / close の表（行が週、列が銘柄）を返す。
+
+    株式分割は調整済み、配当は未調整（証券会社アプリのチャートと同じ値になる）。今週の途中までの足も含む。
+    """
+    parts = {"open": [], "high": [], "low": [], "close": []}
+    for i in range(0, len(symbols), chunk):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # yfinance が出す pandas の非推奨警告
+            data = yf.download(list(symbols[i:i + chunk]), period="2y", interval="1wk",
+                               auto_adjust=False, threads=True, progress=False)
+        for key in parts:
+            parts[key].append(data[key.capitalize()])
+        log(f"  週足: {min(i + chunk, len(symbols)):,} / {len(symbols):,} 銘柄")
+        time.sleep(1)
+    return align_weeks({key: pd.concat(frames, axis=1) for key, frames in parts.items()})
+
+
+# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後）
+WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last"}
+
+
+def align_weeks(bars):
+    """週足の行を、その週の月曜日の日付にそろえる。
+
+    Yahoo はまれに一部の銘柄だけ週の途中の日付で別の行を返す。そのままだと他の銘柄に空の行ができて
+    移動平均が途切れるので、同じ週の行は1行にまとめる。
+    """
+    aligned = {}
+    for key, table in bars.items():
+        monday = table.index - pd.to_timedelta(table.index.weekday, unit="D")
+        aligned[key] = table.groupby(monday).agg(WEEK_AGG[key])
+    return aligned
+
+
 def fetch_history(symbols, log=print, chunk=500):
     """直近1年の日足の終値（株式分割・配当で調整済み）を、行が日付・列が銘柄の表で返す"""
     closes = []

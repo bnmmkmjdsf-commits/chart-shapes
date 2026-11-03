@@ -24,7 +24,7 @@ $env:SEC_USER_AGENT = "Your Name you@example.com"
 # 画面の「データを更新」ボタンでも同じことができる
 & "$env:USERPROFILE\.venvs\us-screener\Scripts\python.exe" -m screener.build
 
-# 4つの形（もみ合い・リバウンド・下落・下げとまった）のチャート一覧ページを作る → data/gallery.html
+# 週足の押し目候補ページ（26週線タッチ＋下ひげ、日米）を作る → site/index.html。GitHub Actions が平日に動かして公開している
 & "$env:USERPROFILE\.venvs\us-screener\Scripts\python.exe" -m screener.gallery
 
 # 画面を起動 → http://localhost:8501
@@ -38,7 +38,8 @@ $env:SEC_USER_AGENT = "Your Name you@example.com"
 | `screener/edgar.py` | SEC EDGAR の companyfacts API から各社の 10-K・10-Q の数字を取り、直近12か月（TTM）を計算 |
 | `screener/prices.py` | Yahoo のスクリーナー API から株価・時価総額（米国・日本）、yfinance で直近1年の日足 |
 | `screener/jpx.py` | JPX の東証上場銘柄一覧から、日本語の銘柄名・市場区分・33業種 |
-| `screener/shapes.py` | チャートの形の判定 |
+| `screener/shapes.py` | チャートの形の判定（Streamlit の画面用） |
+| `screener/pullback.py`, `screener/gallery.py` | 週足の押し目候補の判定と、公開ページの書き出し |
 | `screener/build.py` | 全部を取得して `data/` に保存（米国株 `screener.parquet`、日本株 `jp.parquet`、日足 `history_*.parquet`） |
 | `app.py`, `views/` | Streamlit の画面（`views/us_screener.py`、`views/chart_shapes.py`） |
 

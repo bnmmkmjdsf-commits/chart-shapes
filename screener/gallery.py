@@ -1,4 +1,4 @@
-"""日米の株を、直近1ヶ月のチャートの形（4つ）ごとにカードで並べた HTML ページを作る。
+"""週足の押し目候補（26週線タッチ＋下ひげ）を、日米それぞれ週足チャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取り直して作る（SEC の財務は使わない）。
 GitHub Actions で平日に動かし、GitHub Pages で公開している。
@@ -10,18 +10,19 @@ import argparse
 import json
 from pathlib import Path
 
-from . import jpx, prices, shapes
+import pandas as pd
+
+from . import jpx, prices, pullback
 from .build import HISTORY_MIN_MARKET_CAP
 
-SHAPES = ["もみ合い?", "リバウンド?", "下落?", "下げとまった?"]
-# 1つの形につき載せる銘柄数（時価総額の大きい順）
-PER_SHAPE = 60
+# チャートに描く週数
+CHART_WEEKS = 52
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 
 
-def _fetch(log):
-    """市場ごとに (終値の表, 銘柄の情報) を取る。銘柄の情報は code・name・market_cap"""
+def _universe(log):
+    """市場ごとに (銘柄の情報, 週足を取る銘柄) を返す。銘柄の情報は code・name・market_cap"""
     log("米国株の銘柄と時価総額を取得中...")
     us = prices.fetch_quotes(log)
     us["name"] = us["name"].fillna(us["symbol"])
@@ -33,42 +34,53 @@ def _fetch(log):
     log("日本株の銘柄と時価総額を取得中...")
     jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap"]], on="symbol", how="left")
     jp = jp.set_index("symbol")[["code", "name", "market_cap"]]
+    return {
+        "jp": (jp, jp.index.tolist()),
+        "us": (us, us.index[us["market_cap"] >= HISTORY_MIN_MARKET_CAP].tolist()),
+    }
 
-    log("株価履歴を取得中...")
-    us_close = prices.fetch_history(us.index[us["market_cap"] >= HISTORY_MIN_MARKET_CAP].tolist(), log)
-    jp_close = prices.fetch_history(jp.index.tolist(), log)
-    return {"jp": (jp_close, jp), "us": (us_close, us)}
+
+def _round(value):
+    """チャート用に有効数字4桁へ丸める（ページを軽くするため）。値が無い週は None"""
+    return None if pd.isna(value) else float(f"{value:.4g}")
 
 
-def _market(close, info):
-    result = shapes.classify(close, shapes.PERIODS["1ヶ月"]).join(info, how="inner")
-    groups = {}
-    for name in SHAPES:
-        hits = result[result["shape"] == name].sort_values("market_cap", ascending=False)
-        top = hits.head(PER_SHAPE)
-        groups[name] = {
-            "count": len(hits),
-            "stocks": [
-                {"code": code, "name": label or code, "change": round(change * 100, 1), "spark": spark}
-                for code, label, change, spark in zip(top["code"], top["name"], top["change"], top["spark"])
-            ],
+def _market(info, bars):
+    hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
+    ma = pullback.moving_averages(bars["close"])
+    weeks = bars["close"].index[-CHART_WEEKS:]
+    series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
+              "ma13": ma[13], "ma26": ma[26], "ma52": ma[52]}
+    stocks = []
+    for symbol, row in hits.iterrows():
+        stock = {
+            "code": row["code"],
+            "name": row["name"] or row["code"],
+            "vsMa26": round(row["vs_ma26"] * 100, 1),
+            "offHigh": round(row["off_high"] * 100, 1),
+            # 下ひげを付けた週が、チャートの左から何本目か
+            "signal": int(weeks.get_loc(row["signal"])),
         }
-    return {"asOf": f"{close.index.max():%Y/%m/%d}", "shapes": groups}
+        stock.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
+        stocks.append(stock)
+    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="日米のチャート形状の一覧ページを作る")
+    parser = argparse.ArgumentParser(description="日米の週足の押し目候補ページを作る")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
     out = parser.parse_args().out
 
-    data = {market: _market(close, info) for market, (close, info) in _fetch(print).items()}
+    data = {}
+    for market, (info, symbols) in _universe(print).items():
+        print(f"{market}: 週足を取得中...")
+        data[market] = _market(info, prices.fetch_weekly(symbols, print))
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
-        counts = "  ".join(f"{name} {g['count']}" for name, g in data[market]["shapes"].items())
-        print(f"{label}（{data[market]['asOf']}）: {counts}")
+        print(f"{label}（{data[market]['week']} の週）: {data[market]['count']} 銘柄")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 
