@@ -126,6 +126,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .name { min-width: 0; font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .vs { flex: none; font-family: var(--font-num); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .card .meta { font-family: var(--font-num); font-size: 0.6875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card .meta .id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .meta .off { flex: none; }
+.card .sector { margin-left: 8px; font-family: var(--font-body); }
 .card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
 .band { fill: var(--band); stroke: none; }
 .up line, .up rect { stroke: var(--up); fill: var(--up); }
@@ -175,7 +178,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <footer class="note">
     <p>条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
-    <p>株価は Yahoo Finance の週足。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
+    <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
 
@@ -230,7 +233,7 @@ function render() {
   document.getElementById("grid").innerHTML = list.map((s) => `
     <a class="card" href="${esc(detailUrl(s.code))}" target="_blank" rel="noopener">
       <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span><span class="vs">26週線 ${pct(s.vsMa26)}</span></div>
-      <div class="meta"><span>${esc(s.code)}</span><span>13週高値から ${pct(s.offHigh)}</span></div>
+      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">13週高値から ${pct(s.offHigh)}</span></div>
       ${chart(s)}
     </a>`).join("");
   document.getElementById("more").hidden = state.shown >= market.stocks.length;

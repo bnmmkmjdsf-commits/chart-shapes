@@ -19,21 +19,36 @@ from .build import HISTORY_MIN_MARKET_CAP
 CHART_WEEKS = 52
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
+# 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
+US_SECTORS = {
+    "Basic Materials": "素材",
+    "Communication Services": "通信サービス",
+    "Consumer Cyclical": "一般消費財",
+    "Consumer Defensive": "生活必需品",
+    "Energy": "エネルギー",
+    "Financial Services": "金融",
+    "Healthcare": "ヘルスケア",
+    "Industrials": "資本財",
+    "Real Estate": "不動産",
+    "Technology": "テクノロジー",
+    "Utilities": "公益事業",
+}
+INFO_COLUMNS = ["code", "name", "sector", "market_cap"]
 
 
 def _universe(log):
-    """市場ごとに (銘柄の情報, 週足を取る銘柄) を返す。銘柄の情報は code・name・market_cap"""
+    """市場ごとに (銘柄の情報, 週足を取る銘柄) を返す。銘柄の情報は code・name・sector（業種）・market_cap"""
     log("米国株の銘柄と時価総額を取得中...")
     us = prices.fetch_quotes(log)
     us["name"] = us["name"].fillna(us["symbol"])
     # GOOGL / GOOG のように同じ会社の銘柄が複数あるときは、売買代金が大きい方だけ残す
     us["dollar_volume"] = us["avg_volume"] * us["price"]
     us = us.sort_values("dollar_volume", ascending=False).drop_duplicates("name")
-    us = us.assign(code=us["symbol"]).set_index("symbol")[["code", "name", "market_cap"]]
+    us = us.assign(code=us["symbol"], sector=us["sector"].map(US_SECTORS)).set_index("symbol")[INFO_COLUMNS]
 
     log("日本株の銘柄と時価総額を取得中...")
     jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap"]], on="symbol", how="left")
-    jp = jp.set_index("symbol")[["code", "name", "market_cap"]]
+    jp = jp.set_index("symbol")[INFO_COLUMNS]
     return {
         "jp": (jp, jp.index.tolist()),
         "us": (us, us.index[us["market_cap"] >= HISTORY_MIN_MARKET_CAP].tolist()),
@@ -56,6 +71,7 @@ def _market(info, bars):
         stock = {
             "code": row["code"],
             "name": row["name"] or row["code"],
+            "sector": "" if pd.isna(row["sector"]) else row["sector"],
             "vsMa26": round(row["vs_ma26"] * 100, 1),
             "offHigh": round(row["off_high"] * 100, 1),
             # 下ひげを付けた週が、チャートの左から何本目か
