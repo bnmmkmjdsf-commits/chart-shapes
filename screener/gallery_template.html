@@ -25,6 +25,7 @@
   --ma13: #b88700;
   --ma26: #e0662f;
   --ma52: #1f8a8a;
+  --star: #d99a00;
   --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
@@ -43,6 +44,7 @@
     --ma13: #e6c34a;
     --ma26: #f08a5d;
     --ma52: #5cc1c1;
+    --star: #f2c14e;
     color-scheme: dark;
   }
 }
@@ -60,6 +62,7 @@
   --ma13: #e6c34a;
   --ma26: #f08a5d;
   --ma52: #5cc1c1;
+  --star: #f2c14e;
   color-scheme: dark;
 }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -108,20 +111,44 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+/* カードは銘柄ページへのリンクと、その左上に重ねた☆ボタン（リンクの中にボタンは置けないので重ねる） */
 .card {
+  position: relative;
   min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.card:hover { border-color: var(--accent); }
+.card > a {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 12px 12px 8px;
-  border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--surface);
   color: inherit;
   text-decoration: none;
 }
-.card:hover { border-color: var(--accent); }
-.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card > a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card .top { padding-left: 24px; }
+.star {
+  appearance: none;
+  position: absolute;
+  top: 5px;
+  left: 4px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.star[aria-pressed="true"] { color: var(--star); }
+.card .gone { margin: 8px 0 4px; color: var(--muted); font-size: 0.75rem; }
+.empty { margin: 8px 0; color: var(--muted); font-size: 0.875rem; }
 .card .top, .card .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .card .name { min-width: 0; font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .vs { flex: none; font-family: var(--font-num); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
@@ -162,6 +189,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="market" role="tablist" aria-label="市場">
     <button type="button" role="tab" id="tab-jp" data-market="jp" aria-selected="true">日本株</button>
     <button type="button" role="tab" id="tab-us" data-market="us" aria-selected="false">米国株</button>
+    <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 保留</button>
   </div>
 
   <div class="legend" aria-label="チャートの見方">
@@ -178,6 +206,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <footer class="note">
     <p>条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
+    <p>☆を押すと「保留」に残せます。保留はこの端末のブラウザに保存されるので、スマホとパソコンでは別々です。</p>
     <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
@@ -190,9 +219,28 @@ const state = { market: "jp", shown: STEP };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%";
 // 銘柄の詳細は株探へ。米国株のクラス株は株探では BRK-B ではなく BRK.B の形
-const detailUrl = (code) => state.market === "jp"
+const detailUrl = (market, code) => market === "jp"
   ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
   : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
+
+// 保留（☆を付けた銘柄）。この端末のブラウザに保存する。保存できない環境でもページは動くようにする
+const FAV_KEY = "favorites-v1";
+let favs = (() => {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; }
+})();
+const isFav = (market, code) => favs.some((f) => f.market === market && f.code === code);
+function toggleFav(market, code) {
+  if (isFav(market, code)) {
+    favs = favs.filter((f) => !(f.market === market && f.code === code));
+  } else {
+    const s = DATA[market].stocks.find((x) => x.code === code);
+    const d = new Date();
+    favs.unshift({ market, code, name: s.name, sector: s.sector || "", added: `${d.getMonth() + 1}/${d.getDate()}` });
+  }
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {}
+  render();
+}
+const liveStock = (market, code) => DATA[market].stocks.find((x) => x.code === code);
 
 function chart(s) {
   const W = 320, H = 160, P = 6, n = s.c.length;
@@ -223,22 +271,50 @@ function chart(s) {
   </svg>`;
 }
 
+// s が今週の候補に入っていればチャート付き、外れていれば（保留だけに残っている銘柄）名前と業種だけ
+function card(market, s, added) {
+  const live = Boolean(s.c);
+  const fav = isFav(market, s.code);
+  const right = live ? `13週高値から ${pct(s.offHigh)}` : market === "jp" ? "日本株" : "米国株";
+  return `<div class="card">
+    <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
+      <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${live ? `<span class="vs">26週線 ${pct(s.vsMa26)}</span>` : ""}</div>
+      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${right}</span></div>
+      ${live ? chart(s) : `<p class="gone">今週の候補からは外れています（${esc(added)} に保留）</p>`}
+    </a>
+    <button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${fav}" aria-label="${fav ? "保留から外す" : "保留する"}">${fav ? "★" : "☆"}</button>
+  </div>`;
+}
+
 function render() {
+  document.querySelectorAll("[data-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
+  document.getElementById("tab-fav").textContent = favs.length ? `★ 保留 ${favs.length}` : "★ 保留";
+  const sub = document.getElementById("sub");
+  const head = document.getElementById("listhead");
+  const grid = document.getElementById("grid");
+
+  if (state.market === "fav") {
+    sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
+    head.innerHTML = favs.length ? `<strong>${favs.length}銘柄</strong>保留中` : "";
+    grid.innerHTML = favs.length
+      ? favs.map((f) => card(f.market, liveStock(f.market, f.code) || f, f.added)).join("")
+      : `<p class="empty">カードの☆を押すと、ここに保留できます。</p>`;
+    document.getElementById("more").hidden = true;
+    return;
+  }
+
   const market = DATA[state.market];
   const list = market.stocks.slice(0, state.shown);
-  document.querySelectorAll("[data-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
-  document.getElementById("sub").textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
-  document.getElementById("listhead").innerHTML =
-    `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
-  document.getElementById("grid").innerHTML = list.map((s) => `
-    <a class="card" href="${esc(detailUrl(s.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span><span class="vs">26週線 ${pct(s.vsMa26)}</span></div>
-      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">13週高値から ${pct(s.offHigh)}</span></div>
-      ${chart(s)}
-    </a>`).join("");
+  sub.textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
+  head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
+  grid.innerHTML = list.map((s) => card(state.market, s)).join("");
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
+document.getElementById("grid").addEventListener("click", (e) => {
+  const b = e.target.closest(".star");
+  if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
+});
 document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
