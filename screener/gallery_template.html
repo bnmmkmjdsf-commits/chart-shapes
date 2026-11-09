@@ -175,6 +175,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   background: var(--surface);
   font-size: 0.875rem;
 }
+#topsec { display: flex; flex-direction: column; gap: 10px; }
+.sechead { margin: 6px 0 0; font-size: 1rem; font-weight: 600; }
+.sechead span { margin-left: 8px; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
+.card .nm { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.card .rank { flex: none; font-family: var(--font-num); font-size: 0.8125rem; color: var(--accent); }
+.badge { flex: none; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-family: var(--font-num); font-size: 0.625rem; font-weight: 500; }
+.card .since { margin-top: 2px; font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card .since b { font-weight: 500; }
+.card .since .gain { color: var(--up); }
+.card .since .loss { color: var(--down); }
 .note { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; line-height: 1.6; }
 .note p { margin: 0; }
 </style>
@@ -199,14 +209,21 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <span><i class="kband"></i>下ひげを付けた週</span>
   </div>
 
+  <section id="topsec">
+    <h2 class="sechead">今週のTOP<span>下ひげの長さ × 出来高の増え方</span></h2>
+    <div class="grid" id="topgrid"></div>
+  </section>
+
+  <h2 class="sechead" id="listtitle">押し目候補</h2>
   <p class="listhead" id="listhead"></p>
   <div class="grid" id="grid"></div>
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。</p>
+    <p>今週のTOP: 右肩上がりかどうかは問わず、今週の足（週の途中も含む）だけで選ぶ。下ひげが値幅の35%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上の銘柄を、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。</p>
+    <p>押し目候補の条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。NEW は先週の時点では候補に入っていなかった銘柄。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
-    <p>☆を押すと「保留」に残せます。保留はこの端末のブラウザに保存されるので、スマホとパソコンでは別々です。</p>
+    <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されるので、スマホとパソコンでは別々です。</p>
     <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
@@ -223,24 +240,35 @@ const detailUrl = (market, code) => market === "jp"
   ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
   : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
 
-// 保留（☆を付けた銘柄）。この端末のブラウザに保存する。保存できない環境でもページは動くようにする
+// 保留（☆を付けた銘柄）。この端末のブラウザに保存する。保存できない環境でもページは動くようにする。
+// 保留した日の株価（price）と日付（from）も持ち、保留タブで今の株価との差を出す
 const FAV_KEY = "favorites-v1";
+const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
+const findStock = (market, code) =>
+  DATA[market].stocks.find((x) => x.code === code) || (DATA[market].top || []).find((x) => x.code === code);
 let favs = (() => {
   try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; }
 })();
-const isFav = (market, code) => favs.some((f) => f.market === market && f.code === code);
+const saveFavs = () => { try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {} };
+// 株価を持たない古い保留は、今日の株価を起点にする
+if (favs.some((f) => f.price == null && priceOf(f.market, f.code) != null)) {
+  favs.forEach((f) => {
+    if (f.price == null && priceOf(f.market, f.code) != null) Object.assign(f, { price: priceOf(f.market, f.code), from: today() });
+  });
+  saveFavs();
+}
+const favOf = (market, code) => favs.find((f) => f.market === market && f.code === code);
 function toggleFav(market, code) {
-  if (isFav(market, code)) {
+  if (favOf(market, code)) {
     favs = favs.filter((f) => !(f.market === market && f.code === code));
   } else {
-    const s = DATA[market].stocks.find((x) => x.code === code);
-    const d = new Date();
-    favs.unshift({ market, code, name: s.name, sector: s.sector || "", added: `${d.getMonth() + 1}/${d.getDate()}` });
+    const s = findStock(market, code);
+    favs.unshift({ market, code, name: s.name, sector: s.sector || "", added: today(), from: today(), price: priceOf(market, code) });
   }
-  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {}
+  saveFavs();
   render();
 }
-const liveStock = (market, code) => DATA[market].stocks.find((x) => x.code === code);
 
 function chart(s) {
   const W = 320, H = 160, P = 6, n = s.c.length;
@@ -271,18 +299,31 @@ function chart(s) {
   </svg>`;
 }
 
-// s が今週の候補に入っていればチャート付き、外れていれば（保留だけに残っている銘柄）名前と業種だけ
-function card(market, s, added) {
-  const live = Boolean(s.c);
-  const fav = isFav(market, s.code);
-  const right = live ? `13週高値から ${pct(s.offHigh)}` : market === "jp" ? "日本株" : "米国株";
+// カード。s は押し目候補（vsMa26 あり）・今週のTOP（wick あり）・保留だけに残った銘柄（チャート無し）のどれか。
+// opts.rank はTOPの順位、opts.since が true なら保留してからの値動きを出す
+function card(market, s, opts = {}) {
+  const fav = favOf(market, s.code);
+  const kind = s.wick != null ? "top" : s.vsMa26 != null ? "pullback" : "gone";
+  const right = { top: `下ひげ ${s.wick}%`, pullback: `26週線 ${pct(s.vsMa26)}`, gone: "" }[kind];
+  const metaRight = {
+    top: `出来高 ${s.volumeRatio}倍`,
+    pullback: `13週高値から ${pct(s.offHigh)}`,
+    gone: market === "jp" ? "日本株" : "米国株",
+  }[kind];
+  let since = "";
+  const now = priceOf(market, s.code);
+  if (opts.since && fav && fav.price && now) {
+    const change = (now / fav.price - 1) * 100;
+    since = `<div class="since">${esc(fav.from || fav.added)} に保留してから <b class="${change >= 0 ? "gain" : "loss"}">${pct(change)}</b></div>`;
+  }
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${live ? `<span class="vs">26週線 ${pct(s.vsMa26)}</span>` : ""}</div>
-      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${right}</span></div>
-      ${live ? chart(s) : `<p class="gone">今週の候補からは外れています（${esc(added)} に保留）</p>`}
+      <div class="top"><span class="nm">${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${s.isNew ? `<span class="badge">NEW</span>` : ""}</span>${right ? `<span class="vs">${right}</span>` : ""}</div>
+      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
+      ${since}
+      ${kind === "gone" ? `<p class="gone">今週の候補・TOPからは外れています</p>` : chart(s)}
     </a>
-    <button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${fav}" aria-label="${fav ? "保留から外す" : "保留する"}">${fav ? "★" : "☆"}</button>
+    <button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${Boolean(fav)}" aria-label="${fav ? "保留から外す" : "保留する"}">${fav ? "★" : "☆"}</button>
   </div>`;
 }
 
@@ -292,12 +333,15 @@ function render() {
   const sub = document.getElementById("sub");
   const head = document.getElementById("listhead");
   const grid = document.getElementById("grid");
+  const isFavTab = state.market === "fav";
+  document.getElementById("topsec").hidden = isFavTab;
+  document.getElementById("listtitle").hidden = isFavTab;
 
-  if (state.market === "fav") {
+  if (isFavTab) {
     sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
     head.innerHTML = favs.length ? `<strong>${favs.length}銘柄</strong>保留中` : "";
     grid.innerHTML = favs.length
-      ? favs.map((f) => card(f.market, liveStock(f.market, f.code) || f, f.added)).join("")
+      ? favs.map((f) => card(f.market, findStock(f.market, f.code) || f, { since: true })).join("")
       : `<p class="empty">カードの☆を押すと、ここに保留できます。</p>`;
     document.getElementById("more").hidden = true;
     return;
@@ -305,13 +349,17 @@ function render() {
 
   const market = DATA[state.market];
   const list = market.stocks.slice(0, state.shown);
+  const top = market.top || [];
   sub.textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
+  document.getElementById("topgrid").innerHTML = top.length
+    ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
+    : `<p class="empty">今週はまだ条件に合う銘柄がありません。</p>`;
   head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
   grid.innerHTML = list.map((s) => card(state.market, s)).join("");
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
-document.getElementById("grid").addEventListener("click", (e) => {
+document.querySelector("main").addEventListener("click", (e) => {
   const b = e.target.closest(".star");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
 });

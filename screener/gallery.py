@@ -34,6 +34,8 @@ US_SECTORS = {
     "Utilities": "公益事業",
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap"]
+# 今週のTOPに入れる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）
+TOP_MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
 
 
 def _universe(log):
@@ -60,26 +62,46 @@ def _round(value):
     return None if pd.isna(value) else float(f"{value:.4g}")
 
 
-def _market(info, bars):
+def _market(info, bars, top_min_market_cap):
     hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
+    # 先週の時点（今週の足を除いたデータ）でも候補だった銘柄。今週から入った銘柄に NEW を付けるため
+    last_week = set(pullback.find({key: table.iloc[:-1] for key, table in bars.items()}).index)
+    # 今週のTOPは右肩上がりを問わないので、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
+    big = info.index[info["market_cap"] >= top_min_market_cap].intersection(bars["close"].columns)
+    tops = pullback.top({key: table[big] for key, table in bars.items()}).join(info, how="inner")
+
     ma = pullback.moving_averages(bars["close"])
     weeks = bars["close"].index[-CHART_WEEKS:]
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
               "ma13": ma[13], "ma26": ma[26], "ma52": ma[52]}
-    stocks = []
-    for symbol, row in hits.iterrows():
-        stock = {
+
+    def stock(symbol, row, signal_week):
+        s = {
             "code": row["code"],
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
-            "vsMa26": round(row["vs_ma26"] * 100, 1),
-            "offHigh": round(row["off_high"] * 100, 1),
             # 下ひげを付けた週が、チャートの左から何本目か
-            "signal": int(weeks.get_loc(row["signal"])),
+            "signal": int(weeks.get_loc(signal_week)),
         }
-        stock.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
-        stocks.append(stock)
-    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks}
+        s.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
+        return s
+
+    stocks = []
+    for symbol, row in hits.iterrows():
+        s = stock(symbol, row, row["signal"])
+        s.update({"vsMa26": round(row["vs_ma26"] * 100, 1), "offHigh": round(row["off_high"] * 100, 1),
+                  "isNew": symbol not in last_week})
+        stocks.append(s)
+    top = []
+    for symbol, row in tops.iterrows():
+        s = stock(symbol, row, weeks[-1])
+        s.update({"wick": round(row["wick"] * 100, 1), "volumeRatio": round(row["volume_ratio"], 1)})
+        top.append(s)
+    # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
+    close = bars["close"].iloc[-1].dropna()
+    codes = info["code"].reindex(close.index).dropna()
+    prices = {code: _round(close[symbol]) for symbol, code in codes.items()}
+    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks, "top": top, "prices": prices}
 
 
 def main():
@@ -90,7 +112,7 @@ def main():
     data = {}
     for market, (info, symbols) in _universe(print).items():
         print(f"{market}: 週足を取得中...")
-        data[market] = _market(info, prices.fetch_weekly(symbols, print))
+        data[market] = _market(info, prices.fetch_weekly(symbols, print), TOP_MIN_MARKET_CAP[market])
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)

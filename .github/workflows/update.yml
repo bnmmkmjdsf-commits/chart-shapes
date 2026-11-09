@@ -4,13 +4,13 @@ on:
   schedule:
     - cron: "0 22 * * 0-4"   # 日本時間 平日 7:00（米国市場の終値のあと）
     - cron: "30 7 * * 1-5"   # 日本時間 平日 16:30（東証の終値のあと）
-  workflow_dispatch:          # Actions の画面から手動でも動かせる
+  workflow_dispatch:          # Actions の画面から手動でも動かせる（main 以外のブランチでは公開せず、試し用に作るだけ）
 
 permissions:
   contents: write             # 作ったページを gh-pages ブランチに置くため
 
 concurrency:
-  group: update
+  group: update-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +27,15 @@ jobs:
       - run: python -m screener.gallery --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
+      # main 以外では公開せず、作ったページを Actions の成果物として残す（gh run download で取れる）
+      - name: 試し用のページを残す
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: page
+          path: site/index.html
       - name: gh-pages に公開
+        if: github.ref == 'refs/heads/main'
         working-directory: site
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
