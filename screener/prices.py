@@ -110,19 +110,21 @@ def fetch_weekly(symbols, log=print, chunk=500):
     return align_weeks({key: pd.concat(frames, axis=1) for key, frames in parts.items()})
 
 
-# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後、出来高は合計）
-WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後の値）。
+# 出来高は最大を取る。Yahoo は今週の足を同じ出来高で2行返すことがあり、合計すると2倍になってしまう
+WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "max"}
 
 
 def align_weeks(bars):
-    """週足の行を、その週の月曜日の日付にそろえる。
+    """週足の行を、その週の月曜日の日付（時刻は0時）にそろえる。
 
-    Yahoo はまれに一部の銘柄だけ週の途中の日付で別の行を返す。そのままだと他の銘柄に空の行ができて
-    移動平均が途切れるので、同じ週の行は1行にまとめる。
+    Yahoo はまれに一部の銘柄だけ週の途中の日付で別の行を返す。また週の初めには、今週の足を
+    「月曜0時の空の行」と「取引時刻の行」の2行で返す。そのままだと空の行ができて移動平均が途切れるので、
+    同じ週の行は1行にまとめる。
     """
     aligned = {}
     for key, table in bars.items():
-        monday = table.index - pd.to_timedelta(table.index.weekday, unit="D")
+        monday = table.index.normalize() - pd.to_timedelta(table.index.weekday, unit="D")
         aligned[key] = table.groupby(monday).agg(WEEK_AGG[key])
     return aligned
 
