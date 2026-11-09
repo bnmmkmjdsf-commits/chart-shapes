@@ -175,6 +175,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   background: var(--surface);
   font-size: 0.875rem;
 }
+.transfer { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.transfer button {
+  appearance: none;
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.8125rem;
+}
+.transfer p { margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.6; overflow-wrap: anywhere; }
 #topsec { display: flex; flex-direction: column; gap: 10px; }
 .sechead { margin: 6px 0 0; font-size: 1rem; font-weight: 600; }
 .sechead span { margin-left: 8px; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
@@ -216,6 +226,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   <h2 class="sechead" id="listtitle">押し目候補</h2>
   <p class="listhead" id="listhead"></p>
+  <div class="transfer" id="transfer" hidden>
+    <button type="button" id="send">ほかの端末に送る</button>
+    <p id="notice" aria-live="polite"></p>
+  </div>
   <div class="grid" id="grid"></div>
   <button type="button" id="more" hidden>もっと見る</button>
 
@@ -223,7 +237,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>今週のTOP: 右肩上がりかどうかは問わず、今週の足（週の途中も含む）だけで選ぶ。下ひげが値幅の35%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上の銘柄を、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。</p>
     <p>押し目候補の条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。NEW は先週の時点では候補に入っていなかった銘柄。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
-    <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されるので、スマホとパソコンでは別々です。</p>
+    <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
@@ -257,6 +271,41 @@ if (favs.some((f) => f.price == null && priceOf(f.market, f.code) != null)) {
     if (f.price == null && priceOf(f.market, f.code) != null) Object.assign(f, { price: priceOf(f.market, f.code), from: today() });
   });
   saveFavs();
+}
+// ほかの端末への引き継ぎ。保留の中身をリンクの # の後ろに入れる（# の後ろはサーバーに送られない）。
+// 開いた端末では、まだ持っていない銘柄だけを足す（外した銘柄は引き継がない）
+const TRANSFER = "#fav=";
+const encodeFavs = (list) => btoa(unescape(encodeURIComponent(JSON.stringify(list))));
+const decodeFavs = (text) => JSON.parse(decodeURIComponent(escape(atob(text))));
+let notice = "";
+if (location.hash.startsWith(TRANSFER)) {
+  try {
+    const incoming = decodeFavs(location.hash.slice(TRANSFER.length))
+      .filter((f) => f && (f.market === "jp" || f.market === "us") && f.code);
+    const added = incoming.filter((f) => !favs.some((x) => x.market === f.market && x.code === f.code));
+    favs = [...added, ...favs];
+    saveFavs();
+    notice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。`;
+  } catch {
+    notice = "リンクが途中で切れているようで、取り込めませんでした。";
+  }
+  history.replaceState(null, "", location.pathname + location.search);
+  state.market = "fav";
+}
+async function sendFavs() {
+  const url = location.origin + location.pathname + TRANSFER + encodeFavs(favs);
+  const el = document.getElementById("notice");
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "保留の引き継ぎ", url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    el.textContent = "リンクをコピーしました。もう一方の端末で開くと、保留が取り込まれます。";
+  } catch (e) {
+    if (e && e.name === "AbortError") return;  // 共有画面を閉じただけ
+    el.textContent = `このリンクをもう一方の端末で開いてください: ${url}`;
+  }
 }
 const favOf = (market, code) => favs.find((f) => f.market === market && f.code === code);
 function toggleFav(market, code) {
@@ -336,6 +385,9 @@ function render() {
   const isFavTab = state.market === "fav";
   document.getElementById("topsec").hidden = isFavTab;
   document.getElementById("listtitle").hidden = isFavTab;
+  document.getElementById("transfer").hidden = !isFavTab;
+  document.getElementById("send").hidden = !favs.length;
+  document.getElementById("notice").textContent = notice;
 
   if (isFavTab) {
     sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
@@ -359,6 +411,7 @@ function render() {
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
+document.getElementById("send").addEventListener("click", sendFavs);
 document.querySelector("main").addEventListener("click", (e) => {
   const b = e.target.closest(".star");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);

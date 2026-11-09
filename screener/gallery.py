@@ -33,7 +33,7 @@ US_SECTORS = {
     "Technology": "テクノロジー",
     "Utilities": "公益事業",
 }
-INFO_COLUMNS = ["code", "name", "sector", "market_cap"]
+INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 # 今週のTOPに入れる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）
 TOP_MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
 
@@ -49,7 +49,7 @@ def _universe(log):
     us = us.assign(code=us["symbol"], sector=us["sector"].map(US_SECTORS)).set_index("symbol")[INFO_COLUMNS]
 
     log("日本株の銘柄と時価総額を取得中...")
-    jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap"]], on="symbol", how="left")
+    jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap", "price"]], on="symbol", how="left")
     jp = jp.set_index("symbol")[INFO_COLUMNS]
     return {
         "jp": (jp, jp.index.tolist()),
@@ -62,7 +62,21 @@ def _round(value):
     return None if pd.isna(value) else float(f"{value:.4g}")
 
 
+def _fill_live_close(bars, price):
+    """今週の足の終値が空なら、今の株価で埋める。
+
+    週の初めなど、Yahoo（yfinance）が今週の足を始値・高値・安値・出来高だけ入れて終値を空で返すことがある。
+    そのままだと全銘柄の直近の終値と移動平均が空になり、候補が0件になる。
+    """
+    close = bars["close"]
+    last = close.index[-1]
+    missing = close.loc[last].isna() & bars["open"].loc[last].notna()
+    fill = price.reindex(close.columns)[missing].dropna()
+    close.loc[last, fill.index] = fill.to_numpy()
+
+
 def _market(info, bars, top_min_market_cap):
+    _fill_live_close(bars, info["price"])
     hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
     # 先週の時点（今週の足を除いたデータ）でも候補だった銘柄。今週から入った銘柄に NEW を付けるため
     last_week = set(pullback.find({key: table.iloc[:-1] for key, table in bars.items()}).index)
