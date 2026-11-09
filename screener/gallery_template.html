@@ -363,7 +363,7 @@ function card(market, s, opts = {}) {
   const now = priceOf(market, s.code);
   if (opts.since && fav && fav.price && now) {
     const change = (now / fav.price - 1) * 100;
-    since = `<div class="since">${esc(fav.from || fav.added)} に保留してから <b class="${change >= 0 ? "gain" : "loss"}">${pct(change)}</b></div>`;
+    since = `<div class="since">${esc(fav.from || fav.added)} に保留してから <b class="${change >= 0.05 ? "gain" : change <= -0.05 ? "loss" : ""}">${pct(change)}</b></div>`;
   }
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
