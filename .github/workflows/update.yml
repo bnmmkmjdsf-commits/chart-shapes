@@ -24,6 +24,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - run: python dev_debug.py
+        if: github.ref != 'refs/heads/main'
       - run: python -m screener.gallery --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
