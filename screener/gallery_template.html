@@ -220,7 +220,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
 
   <section id="topsec">
-    <h2 class="sechead">今週のTOP<span>下ひげの長さ × 出来高の増え方</span></h2>
+    <h2 class="sechead">今週のTOP<span id="topnote">下ひげの長さ × 出来高の増え方</span></h2>
     <div class="grid" id="topgrid"></div>
   </section>
 
@@ -234,7 +234,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>今週のTOP: 右肩上がりかどうかは問わず、今週の足（週の途中も含む）だけで選ぶ。下ひげが値幅の35%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上の銘柄を、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。</p>
+    <p>今週のTOP: 右肩上がりかどうかは問わず、取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）だけで選ぶ。下ひげが値幅の35%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上の銘柄を、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。</p>
     <p>押し目候補の条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。NEW は先週の時点では候補に入っていなかった銘柄。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
@@ -403,6 +403,7 @@ function render() {
   const list = market.stocks.slice(0, state.shown);
   const top = market.top || [];
   sub.textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
+  document.getElementById("topnote").textContent = `下ひげの長さ × 出来高の増え方（${market.topWeek || market.week} の週の足）`;
   document.getElementById("topgrid").innerHTML = top.length
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
     : `<p class="empty">今週はまだ条件に合う銘柄がありません。</p>`;

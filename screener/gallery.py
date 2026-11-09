@@ -75,17 +75,30 @@ def _fill_live_close(bars, price):
     close.loc[last, fill.index] = fill.to_numpy()
 
 
-def _market(info, bars, top_min_market_cap):
+# 市場ごとの時間帯と大引けの時刻
+MARKET_CLOSE = {"jp": ("Asia/Tokyo", 15, 30), "us": ("America/New_York", 16, 0)}
+
+
+def _week_done(monday, market):
+    """その週（月曜の日付）の取引が終わったか。金曜の大引けを過ぎていれば終わったとみなす（祝日は見ない）"""
+    tz, hour, minute = MARKET_CLOSE[market]
+    friday_close = pd.Timestamp(monday.date()).tz_localize(tz) + pd.Timedelta(days=4, hours=hour, minutes=minute)
+    return pd.Timestamp.now(tz) >= friday_close
+
+
+def _market(market, info, bars, top_min_market_cap):
     _fill_live_close(bars, info["price"])
     hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
     # 先週の時点（今週の足を除いたデータ）でも候補だった銘柄。今週から入った銘柄に NEW を付けるため
     last_week = set(pullback.find({key: table.iloc[:-1] for key, table in bars.items()}).index)
     # 今週のTOPは右肩上がりを問わないので、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
     big = info.index[info["market_cap"] >= top_min_market_cap].intersection(bars["close"].columns)
-    tops = pullback.top({key: table[big] for key, table in bars.items()}).join(info, how="inner")
+    # 週の途中の足は出来高が少なく比べられないので、TOPは取引が終わった直近の週で選ぶ
+    weeks = bars["close"].index[-CHART_WEEKS:]
+    at = -1 if _week_done(weeks[-1], market) else -2
+    tops = pullback.top({key: table[big] for key, table in bars.items()}, at=at).join(info, how="inner")
 
     ma = pullback.moving_averages(bars["close"])
-    weeks = bars["close"].index[-CHART_WEEKS:]
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
               "ma13": ma[13], "ma26": ma[26], "ma52": ma[52]}
 
@@ -108,14 +121,15 @@ def _market(info, bars, top_min_market_cap):
         stocks.append(s)
     top = []
     for symbol, row in tops.iterrows():
-        s = stock(symbol, row, weeks[-1])
+        s = stock(symbol, row, weeks[at])
         s.update({"wick": round(row["wick"] * 100, 1), "volumeRatio": round(row["volume_ratio"], 1)})
         top.append(s)
     # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
     close = bars["close"].iloc[-1].dropna()
     codes = info["code"].reindex(close.index).dropna()
     prices = {code: _round(close[symbol]) for symbol, code in codes.items()}
-    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks, "top": top, "prices": prices}
+    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks,
+            "top": top, "topWeek": f"{weeks[at]:%Y/%m/%d}", "prices": prices}
 
 
 def main():
@@ -126,7 +140,7 @@ def main():
     data = {}
     for market, (info, symbols) in _universe(print).items():
         print(f"{market}: 週足を取得中...")
-        data[market] = _market(info, prices.fetch_weekly(symbols, print), TOP_MIN_MARKET_CAP[market])
+        data[market] = _market(market, info, prices.fetch_weekly(symbols, print), TOP_MIN_MARKET_CAP[market])
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)

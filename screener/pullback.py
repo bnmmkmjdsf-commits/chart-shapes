@@ -27,16 +27,16 @@ def moving_averages(close):
     return {n: close.rolling(n).mean() for n in MA_WEEKS}
 
 
-def top(bars, n=5):
-    """「今週のTOP」: 直近の週（途中の週も含む）の足だけを見て、下ひげが長く出来高が増えた順に n 銘柄。
+def top(bars, n=5, at=-1):
+    """「今週のTOP」: 1本の週足（at 本目。-1 が最新、-2 がその前）だけを見て、下ひげが長く出来高が増えた順に n 銘柄。
 
     右肩上がりかどうかは問わない。下ひげと出来高の基準は押し目候補と同じ（値幅の35%以上・株価の2%以上、
     出来高が前13週平均の1.2倍以上）で、それを満たした中から「下ひげの長さ（株価比）× 出来高の倍率」の大きい順。
     返す表（銘柄が索引）: wick（下ひげの長さ、株価比）、volume_ratio（出来高の倍率）
     """
-    o, h, low, c, volume = (bars[k].iloc[-1] for k in ["open", "high", "low", "close", "volume"])
+    o, h, low, c, volume = (bars[k].iloc[at] for k in ["open", "high", "low", "close", "volume"])
     wick = np.minimum(o, c) - low
-    usual = bars["volume"].iloc[-14:-1].mean()
+    usual = bars["volume"].iloc[at - 13:at].mean()
     volume_ratio = volume / usual.where(usual > 0)  # 前13週の出来高が0の銘柄は比べられないので外す
     ok = (wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE) & (volume_ratio >= VOLUME_RATIO)
     table = pd.DataFrame({"wick": wick / c, "volume_ratio": volume_ratio})[ok]
