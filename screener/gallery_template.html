@@ -204,7 +204,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <main class="wrap">
   <header>
     <h1>Fastgraph</h1>
-    <p class="sub" id="sub">右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形</p>
+    <p class="sub" id="sub">長い下ひげを付けて、出来高が増えた銘柄</p>
   </header>
 
   <div class="market" role="tablist" aria-label="市場">
@@ -225,7 +225,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="grid" id="topgrid"></div>
   </section>
 
-  <h2 class="sechead" id="listtitle">押し目候補</h2>
+  <h2 class="sechead" id="listtitle">下ひげ × 出来高増<span>直近3週</span></h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
     <button type="button" id="send">ほかの端末に送る</button>
@@ -235,8 +235,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>今週のTOP: 右肩上がりかどうかは問わず、取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）だけで選ぶ。下ひげが値幅の35%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上の銘柄を、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。</p>
-    <p>押し目候補の条件: 52週線が上向きで26週線がその上（右肩上がり）。直近13週の高値から8%以上下げ、直近3週に、26週線まで届いて下ひげ（値幅の35%以上）を付け、出来高が前13週の平均の1.2倍以上に増えた週がある。終値は52週線より上。NEW は先週の時点では候補に入っていなかった銘柄。</p>
+    <p>条件: トレンドは問わず、すべての銘柄から、下ひげが値幅（高値−安値）の33%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上に増えた週足を探す。直近3週のどこかにその週がある銘柄を、時価総額の大きい順に並べる。NEW は先週の時点では入っていなかった銘柄。</p>
+    <p>今週のTOP: 取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）で条件に合う銘柄のうち、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。カードの「下ひげ」は株価に対する長さ。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
@@ -353,17 +353,13 @@ function chart(s) {
   </svg>`;
 }
 
-// カード。s は押し目候補（vsMa26 あり）・今週のTOP（wick あり）・保留だけに残った銘柄（チャート無し）のどれか。
+// カード。s は条件に合った銘柄（チャートあり）か、保留だけに残った銘柄（チャート無し）。
 // opts.rank はTOPの順位、opts.since が true なら保留してからの値動きを出す
 function card(market, s, opts = {}) {
   const fav = favOf(market, s.code);
-  const kind = s.wick != null ? "top" : s.vsMa26 != null ? "pullback" : "gone";
-  const right = { top: `下ひげ ${s.wick}%`, pullback: `26週線 ${pct(s.vsMa26)}`, gone: "" }[kind];
-  const metaRight = {
-    top: `出来高 ${s.volumeRatio}倍`,
-    pullback: `13週高値から ${pct(s.offHigh)}`,
-    gone: market === "jp" ? "日本株" : "米国株",
-  }[kind];
+  const live = Boolean(s.c);
+  const right = live ? `下ひげ ${s.wick}%` : "";
+  const metaRight = live ? `出来高 ${s.volumeRatio}倍` : market === "jp" ? "日本株" : "米国株";
   let since = "";
   const now = priceOf(market, s.code);
   if (opts.since && fav && fav.price && now) {
@@ -375,7 +371,7 @@ function card(market, s, opts = {}) {
       <div class="top"><span class="nm">${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${s.isNew ? `<span class="badge">NEW</span>` : ""}</span>${right ? `<span class="vs">${right}</span>` : ""}</div>
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
       ${since}
-      ${kind === "gone" ? `<p class="gone">今週の候補・TOPからは外れています</p>` : chart(s)}
+      ${live ? chart(s) : `<p class="gone">今は条件から外れています</p>`}
     </a>
     <button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${Boolean(fav)}" aria-label="${fav ? "保留から外す" : "保留する"}">${fav ? "★" : "☆"}</button>
   </div>`;
@@ -407,7 +403,7 @@ function render() {
   const market = DATA[state.market];
   const list = market.stocks.slice(0, state.shown);
   const top = market.top || [];
-  sub.textContent = `右肩上がりの銘柄が26週線まで下げて、下ひげを付けた形（${market.week} の週まで）`;
+  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.week} の週まで）`;
   document.getElementById("topnote").textContent = `下ひげの長さ × 出来高の増え方（${market.topWeek || market.week} の週の足）`;
   document.getElementById("topgrid").innerHTML = top.length
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")

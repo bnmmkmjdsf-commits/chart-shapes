@@ -1,4 +1,4 @@
-"""週足の押し目候補（26週線タッチ＋下ひげ）を、日米それぞれ週足チャートで並べた HTML ページを作る。
+"""週足で長い下ひげを付けて出来高が増えた銘柄を、日米それぞれ週足チャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取り直して作る（SEC の財務は使わない）。
 GitHub Actions で平日に動かし、GitHub Pages で公開している。
@@ -89,9 +89,9 @@ def _week_done(monday, market):
 def _market(market, info, bars, top_min_market_cap):
     _fill_live_close(bars, info["price"])
     hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
-    # 先週の時点（今週の足を除いたデータ）でも候補だった銘柄。今週から入った銘柄に NEW を付けるため
+    # 先週の時点（今週の足を除いたデータ）でも条件に合っていた銘柄。今週から入った銘柄に NEW を付けるため
     last_week = set(pullback.find({key: table.iloc[:-1] for key, table in bars.items()}).index)
-    # 今週のTOPは右肩上がりを問わないので、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
+    # 今週のTOPは、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
     big = info.index[info["market_cap"] >= top_min_market_cap].intersection(bars["close"].columns)
     # 週の途中の足は出来高が少なく比べられないので、TOPは取引が終わった直近の週で選ぶ
     weeks = bars["close"].index[-CHART_WEEKS:]
@@ -113,17 +113,14 @@ def _market(market, info, bars, top_min_market_cap):
         s.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
         return s
 
-    stocks = []
-    for symbol, row in hits.iterrows():
-        s = stock(symbol, row, row["signal"])
-        s.update({"vsMa26": round(row["vs_ma26"] * 100, 1), "offHigh": round(row["off_high"] * 100, 1),
-                  "isNew": symbol not in last_week})
-        stocks.append(s)
-    top = []
-    for symbol, row in tops.iterrows():
-        s = stock(symbol, row, weeks[at])
+    def measured(symbol, row, signal_week):
+        s = stock(symbol, row, signal_week)
         s.update({"wick": round(row["wick"] * 100, 1), "volumeRatio": round(row["volume_ratio"], 1)})
-        top.append(s)
+        return s
+
+    stocks = [{**measured(symbol, row, row["signal"]), "isNew": symbol not in last_week}
+              for symbol, row in hits.iterrows()]
+    top = [measured(symbol, row, weeks[at]) for symbol, row in tops.iterrows()]
     # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
     close = bars["close"].iloc[-1].dropna()
     codes = info["code"].reindex(close.index).dropna()
@@ -133,7 +130,7 @@ def _market(market, info, bars, top_min_market_cap):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="日米の週足の押し目候補ページを作る")
+    parser = argparse.ArgumentParser(description="日米の週足の「下ひげ × 出来高増」ページを作る")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
     out = parser.parse_args().out
 
