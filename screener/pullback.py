@@ -3,6 +3,7 @@
 条件（1本の週足について）:
   - 下ひげが値幅（高値−安値）の33%以上、かつ株価の2%以上（値動きがほとんど無い週の小さなひげを除く）
   - 出来高がその前13週の平均の VOLUME_RATIO 倍以上（買いが入った印）
+  - 陽線（終値が始値より上）。下ひげを付けたあと、押し返して終わった週だけにする
 
 見るのは1本の週足だけ。週の途中の足は出来高が少なく比べられないので、呼ぶ側が取引の終わった週を指定する。
 
@@ -27,7 +28,8 @@ def _signals(bars):
     wick = np.minimum(o, c) - low
     usual = volume.shift(1).rolling(13).mean()
     volume_ratio = volume / usual.where(usual > 0)  # 前13週の出来高が0の銘柄は比べられないので外す
-    ok = (wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE) & (volume_ratio >= VOLUME_RATIO)
+    ok = ((wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE)
+          & (volume_ratio >= VOLUME_RATIO) & (c > o))
     return ok, wick / c, volume_ratio
 
 

@@ -34,9 +34,10 @@ US_SECTORS = {
     "Utilities": "公益事業",
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
-# 今週のTOPに入れる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）
 TOP_COUNT = 5
-TOP_MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
+# 載せる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）。
+# ふだん売買の少ない小型株は、出来高の倍率が簡単に大きくなるので外す
+MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
 
 
 def _universe(log):
@@ -87,14 +88,14 @@ def _week_done(monday, market):
     return pd.Timestamp.now(tz) >= friday_close
 
 
-def _market(market, info, bars, top_min_market_cap):
+def _market(market, info, bars, min_market_cap):
     _fill_live_close(bars, info["price"])
     # 週の途中の足は出来高が少なく比べられないので、取引が終わった直近の週の足で選ぶ
     weeks = bars["close"].index[-CHART_WEEKS:]
     at = -1 if _week_done(weeks[-1], market) else -2
     hits = pullback.find(bars, at).join(info, how="inner").sort_values("market_cap", ascending=False)
-    # 今週のTOPは、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
-    tops = hits[hits["market_cap"] >= top_min_market_cap].nlargest(TOP_COUNT, "score")
+    hits = hits[hits["market_cap"] >= min_market_cap]
+    tops = hits.nlargest(TOP_COUNT, "score")
 
     ma = pullback.moving_averages(bars["close"])
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
@@ -133,7 +134,7 @@ def main():
     data = {}
     for market, (info, symbols) in _universe(print).items():
         print(f"{market}: 週足を取得中...")
-        data[market] = _market(market, info, prices.fetch_weekly(symbols, print), TOP_MIN_MARKET_CAP[market])
+        data[market] = _market(market, info, prices.fetch_weekly(symbols, print), MIN_MARKET_CAP[market])
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)
