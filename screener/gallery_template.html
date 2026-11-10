@@ -156,6 +156,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .meta .id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .meta .off { flex: none; }
 .card .sector { margin-left: 8px; font-family: var(--font-body); }
+.card .price { margin-left: 8px; color: var(--fg); }
 .card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
 .band { fill: var(--band); stroke: none; }
 .up line, .up rect { stroke: var(--up); fill: var(--up); }
@@ -248,6 +249,10 @@ const STEP = 20;
 const state = { market: "jp", shown: STEP };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// 株価の表示。日本株は「1,234円」、米国株は「$12.34」
+const money = (market, v) => market === "jp"
+  ? `${v.toLocaleString("ja-JP", { maximumFractionDigits: 1 })}円`
+  : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (v) => (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%";
 // 銘柄の詳細は株探へ。米国株のクラス株は株探では BRK-B ではなく BRK.B の形
 const detailUrl = (market, code) => market === "jp"
@@ -368,7 +373,7 @@ function card(market, s, opts = {}) {
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
       <div class="top"><span class="nm">${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${s.isNew ? `<span class="badge">NEW</span>` : ""}</span>${right ? `<span class="vs">${right}</span>` : ""}</div>
-      <div class="meta"><span class="id">${esc(s.code)}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
+      <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
       ${since}
       ${kind === "gone" ? `<p class="gone">今週の候補・TOPからは外れています</p>` : chart(s)}
     </a>

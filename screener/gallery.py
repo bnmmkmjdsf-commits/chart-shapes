@@ -127,7 +127,7 @@ def _market(market, info, bars, top_min_market_cap):
     # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
     close = bars["close"].iloc[-1].dropna()
     codes = info["code"].reindex(close.index).dropna()
-    prices = {code: _round(close[symbol]) for symbol, code in codes.items()}
+    prices = {code: round(float(close[symbol]), 2) for symbol, code in codes.items()}
     return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks,
             "top": top, "topWeek": f"{weeks[at]:%Y/%m/%d}", "prices": prices}
 
