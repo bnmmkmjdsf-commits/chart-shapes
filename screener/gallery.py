@@ -35,6 +35,7 @@ US_SECTORS = {
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 # 今週のTOPに入れる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）
+TOP_COUNT = 5
 TOP_MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
 
 
@@ -88,15 +89,12 @@ def _week_done(monday, market):
 
 def _market(market, info, bars, top_min_market_cap):
     _fill_live_close(bars, info["price"])
-    hits = pullback.find(bars).join(info, how="inner").sort_values("market_cap", ascending=False)
-    # 先週の時点（今週の足を除いたデータ）でも条件に合っていた銘柄。今週から入った銘柄に NEW を付けるため
-    last_week = set(pullback.find({key: table.iloc[:-1] for key, table in bars.items()}).index)
-    # 今週のTOPは、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
-    big = info.index[info["market_cap"] >= top_min_market_cap].intersection(bars["close"].columns)
-    # 週の途中の足は出来高が少なく比べられないので、TOPは取引が終わった直近の週で選ぶ
+    # 週の途中の足は出来高が少なく比べられないので、取引が終わった直近の週の足で選ぶ
     weeks = bars["close"].index[-CHART_WEEKS:]
     at = -1 if _week_done(weeks[-1], market) else -2
-    tops = pullback.top({key: table[big] for key, table in bars.items()}, at=at).join(info, how="inner")
+    hits = pullback.find(bars, at).join(info, how="inner").sort_values("market_cap", ascending=False)
+    # 今週のTOPは、値動きの荒い小型株ばかりにならないよう時価総額で足切りする
+    tops = hits[hits["market_cap"] >= top_min_market_cap].nlargest(TOP_COUNT, "score")
 
     ma = pullback.moving_averages(bars["close"])
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
@@ -113,20 +111,18 @@ def _market(market, info, bars, top_min_market_cap):
         s.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
         return s
 
-    def measured(symbol, row, signal_week):
-        s = stock(symbol, row, signal_week)
+    def measured(symbol, row):
+        s = stock(symbol, row, weeks[at])
         s.update({"wick": round(row["wick"] * 100, 1), "volumeRatio": round(row["volume_ratio"], 1)})
         return s
 
-    stocks = [{**measured(symbol, row, row["signal"]), "isNew": symbol not in last_week}
-              for symbol, row in hits.iterrows()]
-    top = [measured(symbol, row, weeks[at]) for symbol, row in tops.iterrows()]
+    stocks = [measured(symbol, row) for symbol, row in hits.iterrows()]
+    top = [measured(symbol, row) for symbol, row in tops.iterrows()]
     # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
     close = bars["close"].iloc[-1].dropna()
     codes = info["code"].reindex(close.index).dropna()
     prices = {code: round(float(close[symbol]), 2) for symbol, code in codes.items()}
-    return {"week": f"{weeks[-1]:%Y/%m/%d}", "count": len(hits), "stocks": stocks,
-            "top": top, "topWeek": f"{weeks[at]:%Y/%m/%d}", "prices": prices}
+    return {"week": f"{weeks[at]:%Y/%m/%d}", "count": len(hits), "stocks": stocks, "top": top, "prices": prices}
 
 
 def main():

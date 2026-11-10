@@ -191,7 +191,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sechead span { margin-left: 8px; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
 .card .nm { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .card .rank { flex: none; font-family: var(--font-num); font-size: 0.8125rem; color: var(--accent); }
-.badge { flex: none; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-family: var(--font-num); font-size: 0.625rem; font-weight: 500; }
 .card .since { margin-top: 2px; font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .card .since b { font-weight: 500; }
 .card .since .gain { color: var(--up); }
@@ -225,7 +224,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="grid" id="topgrid"></div>
   </section>
 
-  <h2 class="sechead" id="listtitle">下ひげ × 出来高増<span>直近3週</span></h2>
+  <h2 class="sechead" id="listtitle">下ひげ × 出来高増</h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
     <button type="button" id="send">ほかの端末に送る</button>
@@ -235,8 +234,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>条件: トレンドは問わず、すべての銘柄から、下ひげが値幅（高値−安値）の33%以上・株価の2%以上で、出来高が前13週の平均の1.2倍以上に増えた週足を探す。直近3週のどこかにその週がある銘柄を、時価総額の大きい順に並べる。NEW は先週の時点では入っていなかった銘柄。</p>
-    <p>今週のTOP: 取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）で条件に合う銘柄のうち、「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。日本株は時価総額300億円以上。カードの「下ひげ」は株価に対する長さ。</p>
+    <p>条件: トレンドは問わず、すべての銘柄から、取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）で、下ひげが値幅（高値−安値）の33%以上・株価の2%以上、出来高が前13週の平均の1.5倍以上の銘柄を、時価総額の大きい順に並べる。</p>
+    <p>今週のTOP: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄（日本株は時価総額300億円以上）。カードの「下ひげ」は株価に対する長さ。</p>
     <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の全銘柄、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
@@ -368,7 +367,7 @@ function card(market, s, opts = {}) {
   }
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="nm">${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span>${s.isNew ? `<span class="badge">NEW</span>` : ""}</span>${right ? `<span class="vs">${right}</span>` : ""}</div>
+      <div class="top"><span class="nm">${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span>${right ? `<span class="vs">${right}</span>` : ""}</div>
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
       ${since}
       ${live ? chart(s) : `<p class="gone">今は条件から外れています</p>`}
@@ -403,8 +402,7 @@ function render() {
   const market = DATA[state.market];
   const list = market.stocks.slice(0, state.shown);
   const top = market.top || [];
-  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.week} の週まで）`;
-  document.getElementById("topnote").textContent = `下ひげの長さ × 出来高の増え方（${market.topWeek || market.week} の週の足）`;
+  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.week} の週の足）`;
   document.getElementById("topgrid").innerHTML = top.length
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
     : `<p class="empty">今週はまだ条件に合う銘柄がありません。</p>`;
