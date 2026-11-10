@@ -5,6 +5,8 @@ GitHub Actions で平日に動かし、GitHub Pages で公開している。
 
     python -m screener.gallery                  → site/index.html
     python -m screener.gallery --out page.html
+
+見た目だけ変えたときは、株価を取り直さない screener.retemplate で作り直せる。
 """
 import argparse
 import json
@@ -53,10 +55,9 @@ def _universe(log):
     log("日本株の銘柄と時価総額を取得中...")
     jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap", "price"]], on="symbol", how="left")
     jp = jp.set_index("symbol")[INFO_COLUMNS]
-    return {
-        "jp": (jp, jp.index.tolist()),
-        "us": (us, us.index[us["market_cap"] >= HISTORY_MIN_MARKET_CAP].tolist()),
-    }
+    # 週足は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    return {market: (info, info.index[info["market_cap"] >= MIN_MARKET_CAP[market]].tolist())
+            for market, info in [("jp", jp), ("us", us)]}
 
 
 def _round(value):
@@ -119,10 +120,10 @@ def _market(market, info, bars, min_market_cap):
 
     stocks = [measured(symbol, row) for symbol, row in hits.iterrows()]
     top = [measured(symbol, row) for symbol, row in tops.iterrows()]
-    # 保留した銘柄の「保留してからの値動き」用に、全銘柄の直近の株価を持たせる
-    close = bars["close"].iloc[-1].dropna()
-    codes = info["code"].reindex(close.index).dropna()
-    prices = {code: round(float(close[symbol]), 2) for symbol, code in codes.items()}
+    # 保留した銘柄の「保留してからの値動き」用に、全銘柄の今の株価を持たせる。
+    # 週足を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる
+    close = bars["close"].iloc[-1].reindex(info.index).fillna(info["price"]).dropna()
+    prices = {info.at[symbol, "code"]: round(float(value), 2) for symbol, value in close.items()}
     return {"week": f"{weeks[at]:%Y/%m/%d}", "count": len(hits), "stocks": stocks, "top": top, "prices": prices}
 
 
