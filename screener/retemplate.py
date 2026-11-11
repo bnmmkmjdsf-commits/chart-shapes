@@ -7,11 +7,10 @@
 """
 import argparse
 import json
-import re
-import urllib.request
 from pathlib import Path
 
-PAGE_URL = "https://bnmmkmjdsf-commits.github.io/chart-shapes/"
+from . import published
+
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 
 
@@ -20,10 +19,7 @@ def main():
     parser.add_argument("--out", type=Path, required=True, help="書き出す HTML のパス")
     out = parser.parse_args().out
 
-    with urllib.request.urlopen(PAGE_URL, timeout=60) as res:
-        page = res.read().decode("utf-8")
-    # テンプレートの「const DATA = __DATA__;」に入っている JSON を取り出す
-    payload = re.search(r"const DATA = (.*?);\nconst STEP", page, re.S).group(1)
+    payload = published.payload()
     data = json.loads(payload)  # 壊れたデータで公開ページを上書きしないよう、読めることを確かめる
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")

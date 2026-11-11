@@ -2,14 +2,20 @@ name: チャート一覧を更新
 
 on:
   schedule:
-    - cron: "0 22 * * 0-4"   # 日本時間 平日 7:00（米国市場の終値のあと）
-    - cron: "30 7 * * 1-5"   # 日本時間 平日 16:30（東証の終値のあと）
+    # それぞれの市場が閉じた後に、その市場だけ取り直す（下の MARKETS で cron の文字列と見比べている）
+    - cron: "0 22 * * 1-5"   # 日本時間 火〜土 7:00（米国市場の月〜金の終値のあと）→ 米国株
+    - cron: "30 7 * * 1-5"   # 日本時間 月〜金 16:30（東証の終値のあと）→ 日本株
   workflow_dispatch:          # Actions の画面から手動でも動かせる（main 以外のブランチでは公開せず、試し用に作るだけ）
     inputs:
       reuse_data:
         description: 株価を取り直さず、公開中のページのデータで作り直す（見た目だけ変えたとき用。1分ほどで終わる）
         type: boolean
         default: false
+      markets:
+        description: 株価を取り直す市場（片方だけのとき、もう片方は公開中のページのデータを使う）
+        type: choice
+        options: [both, jp, us]
+        default: both
 
 permissions:
   contents: write             # 作ったページを gh-pages ブランチに置くため
@@ -32,7 +38,9 @@ jobs:
       - if: ${{ !inputs.reuse_data }}
         run: pip install -r requirements.txt
       - if: ${{ !inputs.reuse_data }}
-        run: python -u -m screener.gallery --out site/index.html   # -u: 進み具合をその場でログに出す
+        env:
+          MARKETS: ${{ github.event.schedule == '0 22 * * 1-5' && 'us' || github.event.schedule == '30 7 * * 1-5' && 'jp' || inputs.markets || 'both' }}
+        run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS"   # -u: 進み具合をその場でログに出す
       - if: ${{ inputs.reuse_data }}
         run: python -m screener.retemplate --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。

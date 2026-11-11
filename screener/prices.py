@@ -1,4 +1,4 @@
-"""Yahoo Finance（yfinance 経由・非公式）から、株価・時価総額と日足の履歴を取る。
+"""Yahoo Finance（yfinance 経由・非公式）から、株価・時価総額とローソク足を取る。
 
 スクリーナー API は1リクエストで250銘柄ずつ返るので、米国上場株（約7,000銘柄）でも30回程度で済む。
 Yahoo は応答にセクターを含めないため、米国株はセクターごとに問い合わせてラベルを付ける。
@@ -137,15 +137,14 @@ def align_bars(bars, interval):
     return aligned
 
 
-def fetch_history(symbols, log=print, chunk=500):
-    """直近1年の日足の終値（株式分割・配当で調整済み）を、行が日付・列が銘柄の表で返す"""
-    closes = []
-    for i in range(0, len(symbols), chunk):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # yfinance が出す pandas の非推奨警告
-            data = yf.download(list(symbols[i:i + chunk]), period="1y", interval="1d",
-                               auto_adjust=True, threads=True, progress=False)
-        closes.append(data["Close"])
-        log(f"  株価履歴: {min(i + chunk, len(symbols)):,} / {len(symbols):,} 銘柄")
-        time.sleep(1)
-    return pd.concat(closes, axis=1)
+# 日足を週足にまとめるときの方法（出来高はその週の合計）
+WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+
+
+def to_weekly(daily):
+    """日足から週足を作る（行は週の月曜の日付）。週足を別に取らずに済ませるためのもの"""
+    weekly = {}
+    for key, table in daily.items():
+        monday = table.index - pd.to_timedelta(table.index.weekday, unit="D")
+        weekly[key] = table.groupby(monday).agg(WEEK_AGG[key])
+    return weekly

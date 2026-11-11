@@ -1,10 +1,10 @@
 """日足・週足・月足で長い下ひげを付けて出来高が増えた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
 
-Yahoo Finance と JPX からデータを取り直して作る（SEC の財務は使わない）。
-GitHub Actions で平日に動かし、GitHub Pages で公開している。
+Yahoo Finance と JPX からデータを取って作る。GitHub Actions で平日に動かし、GitHub Pages で公開している。
 
     python -m screener.gallery                  → site/index.html
     python -m screener.gallery --out page.html
+    python -m screener.gallery --markets jp     日本株だけ取り直す（米国株は公開中のページのデータを使う）
 
 見た目だけ変えたときは、株価を取り直さない screener.retemplate で作り直せる。
 """
@@ -14,17 +14,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import jpx, prices, pullback
-from .build import HISTORY_MIN_MARKET_CAP
+from . import jpx, prices, published, pullback
 
 # チャートに描く足の本数
 CHART_BARS = 52
 # 足の種類ごとの設定。ma はチャートに描く移動平均の本数（短期・中期・長期）、
-# volume_window は出来高を比べる「その前の平均」の本数、period は Yahoo から取る期間（長期の移動平均を描ける長さ）
+# volume_window は出来高を比べる「その前の平均」の本数
 FRAMES = {
-    "d": {"label": "日足", "interval": "1d", "period": "1y", "ma": (5, 25, 75), "volume_window": 25},
-    "w": {"label": "週足", "interval": "1wk", "period": "2y", "ma": (13, 26, 52), "volume_window": 13},
-    "m": {"label": "月足", "interval": "1mo", "period": "10y", "ma": (12, 24, 60), "volume_window": 12},
+    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25},
+    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13},
+    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12},
 }
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
@@ -44,27 +43,30 @@ US_SECTORS = {
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 TOP_COUNT = 5
-# 載せる銘柄の時価総額の下限（日本株は300億円、米国株は週足を取る3億ドル以上と同じ）。
+# 載せる銘柄の時価総額の下限（日本株は300億円、米国株は10億ドル）。
 # ふだん売買の少ない小型株は、出来高の倍率が簡単に大きくなるので外す
-MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
+MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
 
 
-def _universe(log):
-    """市場ごとに (銘柄の情報, 株価を取る銘柄) を返す。銘柄の情報は code・name・sector（業種）・market_cap"""
+def _us_info(log):
+    """米国株の銘柄の情報（code・name・sector（業種）・market_cap・price）"""
     log("米国株の銘柄と時価総額を取得中...")
     us = prices.fetch_quotes(log)
     us["name"] = us["name"].fillna(us["symbol"])
     # GOOGL / GOOG のように同じ会社の銘柄が複数あるときは、売買代金が大きい方だけ残す
     us["dollar_volume"] = us["avg_volume"] * us["price"]
     us = us.sort_values("dollar_volume", ascending=False).drop_duplicates("name")
-    us = us.assign(code=us["symbol"], sector=us["sector"].map(US_SECTORS)).set_index("symbol")[INFO_COLUMNS]
+    return us.assign(code=us["symbol"], sector=us["sector"].map(US_SECTORS)).set_index("symbol")[INFO_COLUMNS]
 
+
+def _jp_info(log):
+    """日本株の銘柄の情報（code・name・sector（業種）・market_cap・price）"""
     log("日本株の銘柄と時価総額を取得中...")
     jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap", "price"]], on="symbol", how="left")
-    jp = jp.set_index("symbol")[INFO_COLUMNS]
-    # 株価は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
-    return {market: (info, info.index[info["market_cap"] >= MIN_MARKET_CAP[market]].tolist())
-            for market, info in [("jp", jp), ("us", us)]}
+    return jp.set_index("symbol")[INFO_COLUMNS]
+
+
+INFO = {"jp": _jp_info, "us": _us_info}
 
 
 def _round(value):
@@ -148,21 +150,49 @@ def _prices(info, daily):
     return {info.at[symbol, "code"]: round(float(value), 2) for symbol, value in close.items()}
 
 
+def _build(market, log):
+    """1つの市場の株価を取り直して、ページに載せるデータを作る"""
+    info = INFO[market](log)
+    # 株価は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    symbols = info.index[info["market_cap"] >= MIN_MARKET_CAP[market]].tolist()
+    log(f"{market}: 日足を取得中...")
+    daily = prices.fetch_bars(symbols, "1d", "2y", "日足", log)
+    frames = {"d": _frame("d", market, info, daily, MIN_MARKET_CAP[market])}
+    # 週足は日足から作る（別に取らない）。日足の途中の足の終値は _frame で埋めてあるので、週足にも入る
+    frames["w"] = _frame("w", market, info, prices.to_weekly(daily), MIN_MARKET_CAP[market])
+    log(f"{market}: 月足を取得中...")
+    monthly = prices.fetch_bars(symbols, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
+    frames["m"] = _frame("m", market, info, monthly, MIN_MARKET_CAP[market])
+    return {"frames": frames, "prices": _prices(info, daily)}
+
+
+def _published(log):
+    """公開中のページのデータ。取れない・形が古いときは空（その市場は取り直すことになる）"""
+    try:
+        data = json.loads(published.payload())
+        return {market: value for market, value in data.items() if set(value.get("frames", {})) == set(FRAMES)}
+    except Exception as error:
+        log(f"公開中のページのデータは使えません（{error}）")
+        return {}
+
+
 def main():
     parser = argparse.ArgumentParser(description="日米の「下ひげ × 出来高増」ページを作る")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
-    out = parser.parse_args().out
+    parser.add_argument("--markets", choices=["both", "jp", "us"], default="both",
+                        help="株価を取り直す市場。片方だけのとき、もう片方は公開中のページのデータを使う")
+    args = parser.parse_args()
+    out = args.out
 
+    # 朝は米国市場、夕方は東証が閉じた後に動かすので、動いていない方の市場は取り直さない
+    keep = _published(print) if args.markets != "both" else {}
     data = {}
-    for market, (info, symbols) in _universe(print).items():
-        frames = {}
-        for frame, spec in FRAMES.items():
-            print(f"{market}: {spec['label']}を取得中...")
-            bars = prices.fetch_bars(symbols, spec["interval"], spec["period"], spec["label"], print)
-            frames[frame] = _frame(frame, market, info, bars, MIN_MARKET_CAP[market])
-            if frame == "d":
-                current = _prices(info, bars)
-        data[market] = {"frames": frames, "prices": current}
+    for market in ["jp", "us"]:
+        if args.markets in ("both", market) or market not in keep:
+            data[market] = _build(market, print)
+        else:
+            print(f"{market}: 公開中のページのデータを使います")
+            data[market] = keep[market]
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)
