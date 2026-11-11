@@ -1,44 +1,37 @@
-"""週足で「長い下ひげを付けて、出来高が増えた」銘柄を探す。右肩上がりかどうかなど、トレンドは問わない。
+"""ローソク足で「長い下ひげを付けて、出来高が増えた」銘柄を探す。右肩上がりかどうかなど、トレンドは問わない。
 
-条件（1本の週足について）:
-  - 下ひげが値幅（高値−安値）の33%以上、かつ株価の2%以上（値動きがほとんど無い週の小さなひげを除く）
-  - 出来高がその前13週の平均の VOLUME_RATIO 倍以上（買いが入った印）
-  - 陽線（終値が始値より上）。下ひげを付けたあと、押し返して終わった週だけにする
+日足・週足・月足のどれにも同じ条件を使う（1本の足について）:
+  - 下ひげが値幅（高値−安値）の33%以上、かつ株価の2%以上（値動きがほとんど無い足の小さなひげを除く）
+  - 出来高がその前の volume_window 本の平均の VOLUME_RATIO 倍以上（買いが入った印）
+  - 陽線（終値が始値より上）。下ひげを付けたあと、押し返して終わった足だけにする
 
-見るのは1本の週足だけ。週の途中の足は出来高が少なく比べられないので、呼ぶ側が取引の終わった週を指定する。
-
-移動平均は証券会社アプリと同じ 13週（短期）・26週（中期）・52週（長期）の単純平均で、チャートに描くだけ。
+見るのは1本の足だけ。途中の足は出来高が少なく比べられないので、呼ぶ側が取引の終わった足を指定する。
 """
 import numpy as np
 import pandas as pd
 
-MA_WEEKS = (13, 26, 52)
 WICK_OF_RANGE = 0.33
 WICK_OF_PRICE = 0.02
 VOLUME_RATIO = 1.5
 
 
-def moving_averages(close):
-    return {n: close.rolling(n).mean() for n in MA_WEEKS}
+def moving_averages(close, windows):
+    """チャートに描く単純移動平均（windows は本数の組。短い順）"""
+    return [close.rolling(n).mean() for n in windows]
 
 
-def _signals(bars):
-    """週ごと・銘柄ごとの (条件に合うか, 下ひげの長さ（株価比）, 出来高の倍率)"""
-    o, h, low, c, volume = bars["open"], bars["high"], bars["low"], bars["close"], bars["volume"]
+def find(bars, at, volume_window):
+    """at 本目の足（-1 が最新、-2 がその前）で条件に合う銘柄。
+
+    bars: open / high / low / close / volume の表（行が足、列が銘柄）
+    返す表（銘柄が索引）: wick（下ひげの長さ、株価比）、volume_ratio（出来高の倍率）、
+    score（wick × volume_ratio。TOP の並び順に使う）
+    """
+    o, h, low, c, volume = (bars[key].iloc[at] for key in ["open", "high", "low", "close", "volume"])
     wick = np.minimum(o, c) - low
-    usual = volume.shift(1).rolling(13).mean()
-    volume_ratio = volume / usual.where(usual > 0)  # 前13週の出来高が0の銘柄は比べられないので外す
+    usual = bars["volume"].shift(1).rolling(volume_window).mean().iloc[at]
+    volume_ratio = volume / usual.where(usual > 0)  # 前の出来高が0の銘柄は比べられないので外す
     ok = ((wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE)
           & (volume_ratio >= VOLUME_RATIO) & (c > o))
-    return ok, wick / c, volume_ratio
-
-
-def find(bars, at=-1):
-    """at 本目の週足（-1 が最新、-2 がその前）で条件に合う銘柄。
-
-    返す表（銘柄が索引）: wick（下ひげの長さ、株価比）、volume_ratio（出来高の倍率）、
-    score（wick × volume_ratio。「今週のTOP」の並び順に使う）
-    """
-    ok, wick, volume_ratio = _signals(bars)
-    table = pd.DataFrame({"wick": wick.iloc[at], "volume_ratio": volume_ratio.iloc[at]})[ok.iloc[at]]
+    table = pd.DataFrame({"wick": wick / c, "volume_ratio": volume_ratio})[ok]
     return table.assign(score=table["wick"] * table["volume_ratio"])

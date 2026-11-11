@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場の切り替え → 線の凡例 → 週足チャートのカード（スマホは1列、広い画面は列を増やす） */
+/* レイアウト: 見出し → 市場の切り替え → 足（日足・週足・月足）の切り替え → 線の凡例 → チャートのカード（スマホは1列、広い画面は列を増やす） */
 :root {
   --bg: #f3f5f9;
   --surface: #ffffff;
@@ -212,15 +212,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 保留</button>
   </div>
 
-  <div class="legend" aria-label="チャートの見方">
-    <span><i class="k13"></i>13週線</span>
-    <span><i class="k26"></i>26週線</span>
-    <span><i class="k52"></i>52週線</span>
-    <span><i class="kband"></i>下ひげを付けた週</span>
+  <div class="market" id="frames" role="tablist" aria-label="足の種類">
+    <button type="button" role="tab" data-frame="d" aria-selected="false">日足</button>
+    <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
+    <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
   </div>
 
+  <div class="legend" id="legend" aria-label="チャートの見方"></div>
+
   <section id="topsec">
-    <h2 class="sechead">今週のTOP<span id="topnote">下ひげの長さ × 出来高の増え方</span></h2>
+    <h2 class="sechead">TOP 5<span id="topnote">下ひげの長さ × 出来高の増え方</span></h2>
     <div class="grid" id="topgrid"></div>
   </section>
 
@@ -234,18 +235,25 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <button type="button" id="more" hidden>もっと見る</button>
 
   <footer class="note">
-    <p>条件: トレンドは問わず、すべての銘柄から、取引が終わった直近の週の足（月〜木は先週の足、金曜の大引け後からはその週の足）で、下ひげが値幅（高値−安値）の33%以上・株価の2%以上、出来高が前13週の平均の1.5倍以上で、陽線（終値が始値より上）で終わった銘柄を、時価総額の大きい順に並べる。</p>
-    <p>今週のTOP: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
-    <p>移動平均は13週・26週・52週。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
+    <p>条件: トレンドは問わず、取引が終わった直近の足で、下ひげが値幅（高値−安値）の33%以上・株価の2%以上、出来高がその前の平均（日足は25日、週足は13週、月足は12か月）の1.5倍以上で、陽線（終値が始値より上）で終わった銘柄を、時価総額の大きい順に並べる。日足・週足・月足のどれも同じ条件。</p>
+    <p>直近の足: 日足は大引け後からその日の足、週足は金曜の大引け後からその週の足（月〜木は先週の足）、月足は翌月に入ってから前の月の足。</p>
+    <p>TOP 5: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
+    <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
-    <p>株価は Yahoo Finance の週足。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の時価総額300億円以上、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
+    <p>株価は Yahoo Finance。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の時価総額300億円以上、米国株は時価総額3億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
 
 <script>
 const DATA = __DATA__;
 const STEP = 20;
-const state = { market: "jp", shown: STEP };
+const state = { market: "jp", frame: "w", shown: STEP };
+// 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
+const FRAMES = {
+  d: { name: "日足", ma: ["5日線", "25日線", "75日線"] },
+  w: { name: "週足", ma: ["13週線", "26週線", "52週線"] },
+  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"] },
+};
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 // 株価の表示。日本株は「1,234円」、米国株は「$12.34」
@@ -263,8 +271,14 @@ const detailUrl = (market, code) => market === "jp"
 const FAV_KEY = "favorites-v1";
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
-const findStock = (market, code) =>
-  DATA[market].stocks.find((x) => x.code === code) || (DATA[market].top || []).find((x) => x.code === code);
+// 条件に合っている銘柄を探す。いま選んでいる足を先に、無ければほかの足から探し、見つけた足の種類（frame）を付けて返す
+function findStock(market, code) {
+  for (const frame of [state.frame, "w", "d", "m"]) {
+    const s = DATA[market].frames[frame].stocks.find((x) => x.code === code);
+    if (s) return { ...s, frame };
+  }
+  return null;
+}
 let favs = (() => {
   try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; }
 })();
@@ -325,7 +339,7 @@ function toggleFav(market, code) {
 
 function chart(s) {
   const W = 320, H = 160, P = 6, n = s.c.length;
-  const values = [...s.h, ...s.l, ...s.ma13, ...s.ma26, ...s.ma52].filter((v) => v != null);
+  const values = [...s.h, ...s.l, ...s.maS, ...s.maM, ...s.maL].filter((v) => v != null);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
   const step = W / n, body = Math.max(1, step * 0.62);
@@ -347,8 +361,8 @@ function chart(s) {
       <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
     </g>`;
   }).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="直近1年の週足チャート">
-    ${band}${line(s.ma52, "ma52")}${line(s.ma26, "ma26")}${line(s.ma13, "ma13")}${candles}
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ローソク足チャート">
+    ${band}${line(s.maL, "ma52")}${line(s.maM, "ma26")}${line(s.maS, "ma13")}${candles}
   </svg>`;
 }
 
@@ -358,7 +372,8 @@ function card(market, s, opts = {}) {
   const fav = favOf(market, s.code);
   const live = Boolean(s.c);
   const right = live ? `下ひげ ${s.wick}%` : "";
-  const metaRight = live ? `出来高 ${s.volumeRatio}倍` : market === "jp" ? "日本株" : "米国株";
+  // 保留タブでは、どの足で条件に合っているかも出す
+  const metaRight = live ? `${s.frame ? FRAMES[s.frame].name + " " : ""}出来高 ${s.volumeRatio}倍` : market === "jp" ? "日本株" : "米国株";
   let since = "";
   const now = priceOf(market, s.code);
   if (opts.since && fav && fav.price && now) {
@@ -388,6 +403,12 @@ function render() {
   document.getElementById("transfer").hidden = !isFavTab;
   document.getElementById("send").hidden = !favs.length;
   document.getElementById("notice").textContent = notice;
+  document.getElementById("frames").hidden = isFavTab;
+  document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
+  const lines = isFavTab ? ["短期線", "中期線", "長期線"] : FRAMES[state.frame].ma;
+  document.getElementById("legend").innerHTML =
+    `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
+    + `<span><i class="kband"></i>下ひげを付けた足</span>`;
 
   if (isFavTab) {
     sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
@@ -399,13 +420,13 @@ function render() {
     return;
   }
 
-  const market = DATA[state.market];
+  const market = DATA[state.market].frames[state.frame];
   const list = market.stocks.slice(0, state.shown);
-  const top = market.top || [];
-  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.week} の週の足）`;
+  const top = market.top;
+  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.bar}の${FRAMES[state.frame].name}）`;
   document.getElementById("topgrid").innerHTML = top.length
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
-    : `<p class="empty">今週はまだ条件に合う銘柄がありません。</p>`;
+    : `<p class="empty">条件に合う銘柄がありません。</p>`;
   head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
   grid.innerHTML = list.map((s) => card(state.market, s)).join("");
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
@@ -420,6 +441,13 @@ document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
   state.market = b.dataset.market;
+  state.shown = STEP;
+  render();
+});
+document.getElementById("frames").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-frame]");
+  if (!b) return;
+  state.frame = b.dataset.frame;
   state.shown = STEP;
   render();
 });

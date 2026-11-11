@@ -92,40 +92,48 @@ def fetch_jp_quotes(log=print):
     return pd.DataFrame(rows).drop_duplicates("symbol")
 
 
-def fetch_weekly(symbols, log=print, chunk=500):
-    """直近2年の週足。open / high / low / close / volume の表（行が週、列が銘柄）を返す。
+def fetch_bars(symbols, interval, period, label, log=print, chunk=500):
+    """ローソク足（interval は "1d"・"1wk"・"1mo"）を period の期間ぶん取る。
+    open / high / low / close / volume の表（行が足、列が銘柄）を返す。
 
-    株式分割は調整済み、配当は未調整（証券会社アプリのチャートと同じ値になる）。今週の途中までの足も含む。
+    株式分割は調整済み、配当は未調整（証券会社アプリのチャートと同じ値になる）。途中の足（今日・今週・今月）も含む。
     """
     parts = {"open": [], "high": [], "low": [], "close": [], "volume": []}
     for i in range(0, len(symbols), chunk):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")  # yfinance が出す pandas の非推奨警告
-            data = yf.download(list(symbols[i:i + chunk]), period="2y", interval="1wk",
+            data = yf.download(list(symbols[i:i + chunk]), period=period, interval=interval,
                                auto_adjust=False, threads=True, progress=False)
         for key in parts:
             parts[key].append(data[key.capitalize()])
-        log(f"  週足: {min(i + chunk, len(symbols)):,} / {len(symbols):,} 銘柄")
+        log(f"  {label}: {min(i + chunk, len(symbols)):,} / {len(symbols):,} 銘柄")
         time.sleep(1)
-    return align_weeks({key: pd.concat(frames, axis=1) for key, frames in parts.items()})
+    return align_bars({key: pd.concat(frames, axis=1) for key, frames in parts.items()}, interval)
 
 
-# 同じ週の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後の値）。
-# 出来高は最大を取る。Yahoo は今週の足を同じ出来高で2行返すことがあり、合計すると2倍になってしまう
-WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "max"}
+# 同じ足の行をまとめるときの方法（始値は最初、高値は最大、安値は最小、終値は最後の値）。
+# 出来高は最大を取る。Yahoo は途中の足を同じ出来高で2行返すことがあり、合計すると2倍になってしまう
+BAR_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "max"}
 
 
-def align_weeks(bars):
-    """週足の行を、その週の月曜日の日付（時刻は0時）にそろえる。
+def align_bars(bars, interval):
+    """足の行を、その足の始まりの日付（日足はその日、週足は月曜、月足は1日。時刻は0時）にそろえる。
 
-    Yahoo はまれに一部の銘柄だけ週の途中の日付で別の行を返す。また週の初めには、今週の足を
-    「月曜0時の空の行」と「取引時刻の行」の2行で返す。そのままだと空の行ができて移動平均が途切れるので、
-    同じ週の行は1行にまとめる。
+    Yahoo はまれに一部の銘柄だけ足の途中の日付で別の行を返す。また途中の足を
+    「始まりの日の0時の空の行」と「取引時刻の行」の2行で返すことがある。そのままだと空の行ができて
+    移動平均が途切れるので、同じ足の行は1行にまとめる。
     """
     aligned = {}
     for key, table in bars.items():
-        monday = table.index.normalize() - pd.to_timedelta(table.index.weekday, unit="D")
-        aligned[key] = table.groupby(monday).agg(WEEK_AGG[key])
+        index = table.index
+        if index.tz is not None:
+            index = index.tz_localize(None)
+        start = index.normalize()
+        if interval == "1wk":
+            start = start - pd.to_timedelta(start.weekday, unit="D")
+        elif interval == "1mo":
+            start = start - pd.to_timedelta(start.day - 1, unit="D")
+        aligned[key] = table.groupby(start).agg(BAR_AGG[key])
     return aligned
 
 

@@ -1,4 +1,4 @@
-"""週足で長い下ひげを付けて出来高が増えた銘柄を、日米それぞれ週足チャートで並べた HTML ページを作る。
+"""日足・週足・月足で長い下ひげを付けて出来高が増えた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取り直して作る（SEC の財務は使わない）。
 GitHub Actions で平日に動かし、GitHub Pages で公開している。
@@ -17,8 +17,15 @@ import pandas as pd
 from . import jpx, prices, pullback
 from .build import HISTORY_MIN_MARKET_CAP
 
-# チャートに描く週数
-CHART_WEEKS = 52
+# チャートに描く足の本数
+CHART_BARS = 52
+# 足の種類ごとの設定。ma はチャートに描く移動平均の本数（短期・中期・長期）、
+# volume_window は出来高を比べる「その前の平均」の本数、period は Yahoo から取る期間（長期の移動平均を描ける長さ）
+FRAMES = {
+    "d": {"label": "日足", "interval": "1d", "period": "1y", "ma": (5, 25, 75), "volume_window": 25},
+    "w": {"label": "週足", "interval": "1wk", "period": "2y", "ma": (13, 26, 52), "volume_window": 13},
+    "m": {"label": "月足", "interval": "1mo", "period": "10y", "ma": (12, 24, 60), "volume_window": 12},
+}
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 # 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
@@ -43,7 +50,7 @@ MIN_MARKET_CAP = {"jp": 3e10, "us": HISTORY_MIN_MARKET_CAP}
 
 
 def _universe(log):
-    """市場ごとに (銘柄の情報, 週足を取る銘柄) を返す。銘柄の情報は code・name・sector（業種）・market_cap"""
+    """市場ごとに (銘柄の情報, 株価を取る銘柄) を返す。銘柄の情報は code・name・sector（業種）・market_cap"""
     log("米国株の銘柄と時価総額を取得中...")
     us = prices.fetch_quotes(log)
     us["name"] = us["name"].fillna(us["symbol"])
@@ -55,20 +62,20 @@ def _universe(log):
     log("日本株の銘柄と時価総額を取得中...")
     jp = jpx.listing().merge(prices.fetch_jp_quotes(log)[["symbol", "market_cap", "price"]], on="symbol", how="left")
     jp = jp.set_index("symbol")[INFO_COLUMNS]
-    # 週足は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    # 株価は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
     return {market: (info, info.index[info["market_cap"] >= MIN_MARKET_CAP[market]].tolist())
             for market, info in [("jp", jp), ("us", us)]}
 
 
 def _round(value):
-    """チャート用に有効数字4桁へ丸める（ページを軽くするため）。値が無い週は None"""
+    """チャート用に有効数字4桁へ丸める（ページを軽くするため）。値が無い足は None"""
     return None if pd.isna(value) else float(f"{value:.4g}")
 
 
 def _fill_live_close(bars, price):
-    """今週の足の終値が空なら、今の株価で埋める。
+    """途中の足（今日・今週・今月）の終値が空なら、今の株価で埋める。
 
-    週の初めなど、Yahoo（yfinance）が今週の足を始値・高値・安値・出来高だけ入れて終値を空で返すことがある。
+    週の初めなど、Yahoo（yfinance）が途中の足を始値・高値・安値・出来高だけ入れて終値を空で返すことがある。
     そのままだと全銘柄の直近の終値と移動平均が空になり、候補が0件になる。
     """
     close = bars["close"]
@@ -82,66 +89,87 @@ def _fill_live_close(bars, price):
 MARKET_CLOSE = {"jp": ("Asia/Tokyo", 15, 30), "us": ("America/New_York", 16, 0)}
 
 
-def _week_done(monday, market):
-    """その週（月曜の日付）の取引が終わったか。金曜の大引けを過ぎていれば終わったとみなす（祝日は見ない）"""
+def _bar_done(start, frame, market):
+    """その足（start は足の始まりの日付）の取引が終わったか。祝日は見ない。
+
+    日足はその日の大引け、週足は金曜の大引け、月足は翌月に入ったら、終わったとみなす。
+    """
     tz, hour, minute = MARKET_CLOSE[market]
-    friday_close = pd.Timestamp(monday.date()).tz_localize(tz) + pd.Timedelta(days=4, hours=hour, minutes=minute)
-    return pd.Timestamp.now(tz) >= friday_close
+    day = pd.Timestamp(start.date()).tz_localize(tz)
+    close_time = pd.Timedelta(hours=hour, minutes=minute)
+    end = {"d": day + close_time,
+           "w": day + pd.Timedelta(days=4) + close_time,
+           "m": day + pd.DateOffset(months=1)}[frame]
+    return pd.Timestamp.now(tz) >= end
 
 
-def _market(market, info, bars, min_market_cap):
+BAR_NAME = {"d": "{:%Y/%m/%d}", "w": "{:%Y/%m/%d} の週", "m": "{:%Y/%m}"}
+
+
+def _frame(frame, market, info, bars, min_market_cap):
+    """1つの足の種類（日足・週足・月足）について、条件に合う銘柄とチャートのデータを作る"""
+    spec = FRAMES[frame]
     _fill_live_close(bars, info["price"])
-    # 週の途中の足は出来高が少なく比べられないので、取引が終わった直近の週の足で選ぶ
-    weeks = bars["close"].index[-CHART_WEEKS:]
-    at = -1 if _week_done(weeks[-1], market) else -2
-    hits = pullback.find(bars, at).join(info, how="inner").sort_values("market_cap", ascending=False)
-    hits = hits[hits["market_cap"] >= min_market_cap]
+    # 途中の足は出来高が少なく比べられないので、取引が終わった直近の足で選ぶ
+    shown = bars["close"].index[-CHART_BARS:]
+    at = -1 if _bar_done(shown[-1], frame, market) else -2
+    hits = pullback.find(bars, at, spec["volume_window"]).join(info, how="inner")
+    hits = hits[hits["market_cap"] >= min_market_cap].sort_values("market_cap", ascending=False)
     tops = hits.nlargest(TOP_COUNT, "score")
 
-    ma = pullback.moving_averages(bars["close"])
+    short, mid, long = pullback.moving_averages(bars["close"], spec["ma"])
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
-              "ma13": ma[13], "ma26": ma[26], "ma52": ma[52]}
+              "maS": short, "maM": mid, "maL": long}
+    signal = len(shown) + at  # 下ひげを付けた足が、チャートの左から何本目か
 
-    def stock(symbol, row, signal_week):
+    def stock(symbol, row):
         s = {
             "code": row["code"],
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
-            # 下ひげを付けた週が、チャートの左から何本目か
-            "signal": int(weeks.get_loc(signal_week)),
+            "signal": signal,
+            "wick": round(row["wick"] * 100, 1),
+            "volumeRatio": round(row["volume_ratio"], 1),
         }
-        s.update({key: [_round(v) for v in table[symbol].loc[weeks]] for key, table in series.items()})
+        s.update({key: [_round(v) for v in table[symbol].loc[shown]] for key, table in series.items()})
         return s
 
-    def measured(symbol, row):
-        s = stock(symbol, row, weeks[at])
-        s.update({"wick": round(row["wick"] * 100, 1), "volumeRatio": round(row["volume_ratio"], 1)})
-        return s
+    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits),
+            "stocks": [stock(symbol, row) for symbol, row in hits.iterrows()],
+            "top": [stock(symbol, row) for symbol, row in tops.iterrows()]}
 
-    stocks = [measured(symbol, row) for symbol, row in hits.iterrows()]
-    top = [measured(symbol, row) for symbol, row in tops.iterrows()]
-    # 保留した銘柄の「保留してからの値動き」用に、全銘柄の今の株価を持たせる。
-    # 週足を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる
-    close = bars["close"].iloc[-1].reindex(info.index).fillna(info["price"]).dropna()
-    prices = {info.at[symbol, "code"]: round(float(value), 2) for symbol, value in close.items()}
-    return {"week": f"{weeks[at]:%Y/%m/%d}", "count": len(hits), "stocks": stocks, "top": top, "prices": prices}
+
+def _prices(info, daily):
+    """保留した銘柄の「保留してからの値動き」用の、全銘柄の今の株価。
+
+    株価を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる
+    """
+    close = daily["close"].iloc[-1].reindex(info.index).fillna(info["price"]).dropna()
+    return {info.at[symbol, "code"]: round(float(value), 2) for symbol, value in close.items()}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="日米の週足の「下ひげ × 出来高増」ページを作る")
+    parser = argparse.ArgumentParser(description="日米の「下ひげ × 出来高増」ページを作る")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
     out = parser.parse_args().out
 
     data = {}
     for market, (info, symbols) in _universe(print).items():
-        print(f"{market}: 週足を取得中...")
-        data[market] = _market(market, info, prices.fetch_weekly(symbols, print), MIN_MARKET_CAP[market])
+        frames = {}
+        for frame, spec in FRAMES.items():
+            print(f"{market}: {spec['label']}を取得中...")
+            bars = prices.fetch_bars(symbols, spec["interval"], spec["period"], spec["label"], print)
+            frames[frame] = _frame(frame, market, info, bars, MIN_MARKET_CAP[market])
+            if frame == "d":
+                current = _prices(info, bars)
+        data[market] = {"frames": frames, "prices": current}
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
-        print(f"{label}（{data[market]['week']} の週）: {data[market]['count']} 銘柄")
+        for frame, result in data[market]["frames"].items():
+            print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: {result['count']} 銘柄")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 
