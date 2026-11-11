@@ -32,7 +32,7 @@ jobs:
       - if: ${{ !inputs.reuse_data }}
         run: pip install -r requirements.txt
       - if: ${{ !inputs.reuse_data }}
-        run: python -m screener.gallery --out site/index.html
+        run: python -u -m screener.gallery --out site/index.html   # -u: 進み具合をその場でログに出す
       - if: ${{ inputs.reuse_data }}
         run: python -m screener.retemplate --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
