@@ -20,6 +20,17 @@ def moving_averages(close, windows):
     return [close.rolling(n).mean() for n in windows]
 
 
+def _signals(bars, volume_window):
+    """すべての足について、下ひげの長さ（株価比）・出来高の倍率・条件に合うかの表（行が足、列が銘柄）"""
+    o, h, low, c, volume = (bars[key] for key in ["open", "high", "low", "close", "volume"])
+    wick = np.minimum(o, c) - low
+    usual = volume.shift(1).rolling(volume_window).mean()
+    volume_ratio = volume / usual.where(usual > 0)  # 前の出来高が0の銘柄は比べられないので外す
+    ok = ((wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE)
+          & (volume_ratio >= VOLUME_RATIO) & (c > o))
+    return wick / c, volume_ratio, ok
+
+
 def find(bars, at, volume_window):
     """at 本目の足（-1 が最新、-2 がその前）で条件に合う銘柄。
 
@@ -27,11 +38,36 @@ def find(bars, at, volume_window):
     返す表（銘柄が索引）: wick（下ひげの長さ、株価比）、volume_ratio（出来高の倍率）、
     score（wick × volume_ratio。TOP の並び順に使う）
     """
-    o, h, low, c, volume = (bars[key].iloc[at] for key in ["open", "high", "low", "close", "volume"])
-    wick = np.minimum(o, c) - low
-    usual = bars["volume"].shift(1).rolling(volume_window).mean().iloc[at]
-    volume_ratio = volume / usual.where(usual > 0)  # 前の出来高が0の銘柄は比べられないので外す
-    ok = ((wick >= (h - low) * WICK_OF_RANGE) & (wick >= c * WICK_OF_PRICE)
-          & (volume_ratio >= VOLUME_RATIO) & (c > o))
-    table = pd.DataFrame({"wick": wick / c, "volume_ratio": volume_ratio})[ok]
+    wick, volume_ratio, ok = _signals(bars, volume_window)
+    table = pd.DataFrame({"wick": wick.iloc[at], "volume_ratio": volume_ratio.iloc[at]})[ok.iloc[at]]
     return table.assign(score=table["wick"] * table["volume_ratio"])
+
+
+def past_results(bars, at, volume_window, horizons):
+    """過去の足すべてに同じ条件を当てはめて、条件に合った銘柄のその後の値動きを集計する。
+
+    at 本目（取引の終わった直近の足）までを使う。horizons は「何本後の終値と比べるか」の組。
+    それぞれについて、回数（count）、上がった割合（win）、平均の値動き（mean）と、
+    同じ時期の全銘柄の値（base_win・base_mean）を返す。全銘柄と比べないと、相場全体が上がっただけなのか分からない。
+    """
+    done = {key: table.iloc[:len(table) + at + 1] for key, table in bars.items()}
+    ok = _signals(done, volume_window)[2]
+    close = done["close"]
+    results = []
+    for n in horizons:
+        change = (close.shift(-n) / close - 1).replace([np.inf, -np.inf], np.nan)
+        hit = ok & change.notna()
+        per_bar = hit.sum(axis=1)  # その足で条件に合った銘柄の数。全銘柄の値は、この数で重みを付けて平均する
+        count = int(per_bar.sum())
+        if not count:
+            continue
+        hit_change = change.where(hit)
+        results.append({
+            "after": n,
+            "count": count,
+            "win": float((hit_change > 0).sum().sum() / count),
+            "mean": float(hit_change.sum().sum() / count),
+            "base_win": float(((change > 0).sum(axis=1) / change.notna().sum(axis=1) * per_bar).sum() / count),
+            "base_mean": float((change.mean(axis=1) * per_bar).sum() / count),
+        })
+    return results

@@ -19,11 +19,12 @@ from . import jpx, prices, published, pullback
 # チャートに描く足の本数
 CHART_BARS = 52
 # 足の種類ごとの設定。ma はチャートに描く移動平均の本数（短期・中期・長期）、
-# volume_window は出来高を比べる「その前の平均」の本数
+# volume_window は出来高を比べる「その前の平均」の本数、
+# after は過去の成績で「何本後の終値と比べるか」、span は過去の成績に使う期間（取ってくる株価の長さ）
 FRAMES = {
-    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25},
-    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13},
-    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12},
+    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25, "after": (5, 20), "span": "2年"},
+    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13, "after": (4, 13), "span": "2年"},
+    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12, "after": (3,), "span": "10年"},
 }
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
@@ -136,7 +137,14 @@ def _frame(frame, market, info, bars, min_market_cap):
         s.update({key: [_round(v) for v in table[symbol].loc[shown]] for key, table in series.items()})
         return s
 
-    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits),
+    def percent(value):
+        return round(value * 100, 1)
+
+    past = [{"after": r["after"], "count": r["count"], "win": percent(r["win"]), "mean": percent(r["mean"]),
+             "baseWin": percent(r["base_win"]), "baseMean": percent(r["base_mean"])}
+            for r in pullback.past_results(bars, at, spec["volume_window"], spec["after"])]
+
+    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits), "span": spec["span"], "past": past,
             "stocks": [stock(symbol, row) for symbol, row in hits.iterrows()],
             "top": [stock(symbol, row) for symbol, row in tops.iterrows()]}
 
@@ -200,6 +208,9 @@ def main():
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
         for frame, result in data[market]["frames"].items():
             print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: {result['count']} 銘柄")
+            for r in result.get("past", []):
+                print(f"    過去 {r['after']}本後: {r['count']:,}回 上昇 {r['win']}%（全銘柄 {r['baseWin']}%）"
+                      f" 平均 {r['mean']:+}%（全銘柄 {r['baseMean']:+}%）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

@@ -108,6 +108,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legend .k26 { border-color: var(--ma26); }
 .legend .k52 { border-color: var(--ma52); }
 .legend .kband { width: 10px; height: 12px; border: 0; background: var(--band); }
+.past { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 12px; font-size: 0.8125rem; }
+.past h2 { margin: 0 0 6px; font-size: 0.8125rem; font-weight: 600; }
+.past h2 span { margin-left: 8px; font-weight: 400; color: var(--muted); font-size: 0.75rem; }
+.past table { border-collapse: collapse; width: 100%; max-width: 420px; }
+.past th { text-align: left; font-weight: 400; color: var(--muted); font-size: 0.75rem; padding: 2px 10px 2px 0; }
+.past td { padding: 2px 10px 2px 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.past td small { color: var(--muted); font-size: 0.6875rem; margin-left: 4px; }
 .listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
@@ -220,6 +227,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   <div class="legend" id="legend" aria-label="チャートの見方"></div>
 
+  <section class="past" id="past" hidden></section>
+
   <section id="topsec">
     <h2 class="sechead">TOP 5<span id="topnote">下ひげの長さ × 出来高の増え方</span></h2>
     <div class="grid" id="topgrid"></div>
@@ -238,6 +247,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>条件: トレンドは問わず、取引が終わった直近の足で、下ひげが値幅（高値−安値）の33%以上・株価の2%以上、出来高がその前の平均（日足は25日、週足は13週、月足は12か月）の1.5倍以上で、陽線（終値が始値より上）で終わった銘柄を、時価総額の大きい順に並べる。日足・週足・月足のどれも同じ条件。</p>
     <p>直近の足: 日足は大引け後からその日の足、週足は金曜の大引け後からその週の足（月〜木は先週の足）、月足は翌月に入ってから前の月の足。</p>
     <p>TOP 5: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
+    <p>過去の成績: 同じ条件を過去の足すべてに当てはめ、条件に合った銘柄の終値が、その何本か後の終値までにどう動いたかを集計したもの（日足・週足は過去2年、月足は過去10年）。カッコ内は、同じ時期の全銘柄（このページの対象銘柄）の値。いま上場している銘柄だけで計算しているので、実際より少し良く出ます。将来の値動きを約束するものではありません。</p>
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>株価は Yahoo Finance。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の時価総額300億円以上、米国株は時価総額10億ドル以上が対象で、時価総額の大きい順に並べています。</p>
@@ -250,9 +260,9 @@ const STEP = 20;
 const state = { market: "jp", frame: "w", shown: STEP };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
-  d: { name: "日足", ma: ["5日線", "25日線", "75日線"] },
-  w: { name: "週足", ma: ["13週線", "26週線", "52週線"] },
-  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"] },
+  d: { name: "日足", ma: ["5日線", "25日線", "75日線"], after: "日後" },
+  w: { name: "週足", ma: ["13週線", "26週線", "52週線"], after: "週後" },
+  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], after: "か月後" },
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -410,6 +420,9 @@ function render() {
     `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
     + `<span><i class="kband"></i>下ひげを付けた足</span>`;
 
+  const pastBox = document.getElementById("past");
+  pastBox.hidden = true;
+
   if (isFavTab) {
     sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
     head.innerHTML = favs.length ? `<strong>${favs.length}銘柄</strong>保留中` : "";
@@ -424,6 +437,17 @@ function render() {
   const list = market.stocks.slice(0, state.shown);
   const top = market.top;
   sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.bar}の${FRAMES[state.frame].name}）`;
+  // 過去の成績（片方の市場だけ取り直した直後など、データがまだ無いときは出さない）
+  if (market.past && market.past.length) {
+    pastBox.hidden = false;
+    pastBox.innerHTML = `<h2>過去${market.span}の成績<span>この条件に合った銘柄のその後（カッコは全銘柄）</span></h2>`
+      + `<table><tr><th></th><th>上がった割合</th><th>平均</th><th>回数</th></tr>`
+      + market.past.map((r) => `<tr><td>${r.after}${FRAMES[state.frame].after}</td>`
+        + `<td>${r.win.toFixed(0)}%<small>(${r.baseWin.toFixed(0)}%)</small></td>`
+        + `<td>${pct(r.mean)}<small>(${pct(r.baseMean)})</small></td>`
+        + `<td>${r.count.toLocaleString()}回</td></tr>`).join("")
+      + `</table>`;
+  }
   document.getElementById("topgrid").innerHTML = top.length
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
     : `<p class="empty">条件に合う銘柄がありません。</p>`;
