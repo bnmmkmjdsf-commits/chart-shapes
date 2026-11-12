@@ -140,8 +140,8 @@ def _frame(frame, market, info, bars, min_market_cap):
     def percent(value):
         return round(value * 100, 1)
 
-    past = [{"after": r["after"], "count": r["count"], "win": percent(r["win"]), "mean": percent(r["mean"]),
-             "baseWin": percent(r["base_win"]), "baseMean": percent(r["base_mean"])}
+    past = [{"after": r["after"], "count": r["count"], "win": percent(r["win"]), "median": percent(r["median"]),
+             "baseWin": percent(r["base_win"]), "baseMedian": percent(r["base_median"])}
             for r in pullback.past_results(bars, at, spec["volume_window"], spec["after"])]
 
     return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits), "span": spec["span"], "past": past,
@@ -210,7 +210,7 @@ def main():
             print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: {result['count']} 銘柄")
             for r in result.get("past", []):
                 print(f"    過去 {r['after']}本後: {r['count']:,}回 上昇 {r['win']}%（全銘柄 {r['baseWin']}%）"
-                      f" 平均 {r['mean']:+}%（全銘柄 {r['baseMean']:+}%）")
+                      f" 中央値 {r['median']:+}%（全銘柄 {r['baseMedian']:+}%）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

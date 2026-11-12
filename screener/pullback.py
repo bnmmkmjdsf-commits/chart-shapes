@@ -47,8 +47,9 @@ def past_results(bars, at, volume_window, horizons):
     """過去の足すべてに同じ条件を当てはめて、条件に合った銘柄のその後の値動きを集計する。
 
     at 本目（取引の終わった直近の足）までを使う。horizons は「何本後の終値と比べるか」の組。
-    それぞれについて、回数（count）、上がった割合（win）、平均の値動き（mean）と、
-    同じ時期の全銘柄の値（base_win・base_mean）を返す。全銘柄と比べないと、相場全体が上がっただけなのか分からない。
+    それぞれについて、回数（count）、上がった割合（win）、値動きの中央値（median）と、
+    同じ時期の全銘柄の値（base_win・base_median）を返す。全銘柄と比べないと、相場全体が上がっただけなのか分からない。
+    平均ではなく中央値を使う。Yahoo の株価にはまれに桁違いの値が混じり、平均はそれ1つで大きくずれる。
     """
     done = {key: table.iloc[:len(table) + at + 1] for key, table in bars.items()}
     ok = _signals(done, volume_window)[2]
@@ -66,8 +67,8 @@ def past_results(bars, at, volume_window, horizons):
             "after": n,
             "count": count,
             "win": float((hit_change > 0).sum().sum() / count),
-            "mean": float(hit_change.sum().sum() / count),
+            "median": float(np.nanmedian(hit_change.to_numpy())),
             "base_win": float(((change > 0).sum(axis=1) / change.notna().sum(axis=1) * per_bar).sum() / count),
-            "base_mean": float((change.mean(axis=1) * per_bar).sum() / count),
+            "base_median": float((change.median(axis=1) * per_bar).sum() / count),
         })
     return results
