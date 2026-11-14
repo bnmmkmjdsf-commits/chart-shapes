@@ -47,6 +47,13 @@ TOP_COUNT = 5
 # 載せる銘柄の時価総額の下限（日本株は300億円、米国株は10億ドル）。
 # ふだん売買の少ない小型株は、出来高の倍率が簡単に大きくなるので外す
 MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
+# 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になり、下ひげの条件を簡単に通る
+MIN_PRICE = {"jp": 100, "us": 5}
+# 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
+# ふだんほとんど売買の無い銘柄は、少し買いが入っただけで出来高の倍率が大きくなるので外す。
+# 平均でなく中央値にするのは、出来高が跳ねた数日（下ひげを付けた日など）だけで通らないようにするため
+MIN_TURNOVER = {"jp": 1e8, "us": 5e6}
+TURNOVER_DAYS = 60
 
 
 def _us_info(log):
@@ -161,10 +168,14 @@ def _prices(info, daily):
 def _build(market, log):
     """1つの市場の株価を取り直して、ページに載せるデータを作る"""
     info = INFO[market](log)
-    # 株価は、載せる対象（時価総額の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
-    symbols = info.index[info["market_cap"] >= MIN_MARKET_CAP[market]].tolist()
-    log(f"{market}: 日足を取得中...")
+    # 株価は、載せる対象（時価総額と株価の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    symbols = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])].tolist()
+    log(f"{market}: 時価総額と株価の下限以上は {len(symbols):,} 銘柄。日足を取得中...")
     daily = prices.fetch_bars(symbols, "1d", "2y", "日足", log)
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median()
+    symbols = turnover.index[turnover >= MIN_TURNOVER[market]].tolist()
+    daily = {key: table[symbols] for key, table in daily.items()}
+    log(f"{market}: 売買代金の下限以上は {len(symbols):,} 銘柄")
     frames = {"d": _frame("d", market, info, daily, MIN_MARKET_CAP[market])}
     # 週足は日足から作る（別に取らない）。日足の途中の足の終値は _frame で埋めてあるので、週足にも入る
     frames["w"] = _frame("w", market, info, prices.to_weekly(daily), MIN_MARKET_CAP[market])
