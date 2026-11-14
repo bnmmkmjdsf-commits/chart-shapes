@@ -221,6 +221,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* スマホでは、押した後に出た次のカードへ hover の枠が残るので消す（枠が付いた方を選びやすくなってしまう） */
 @media (hover: none) { .card.pick:hover { border-color: var(--line); } }
 .card.pick .top { padding-left: 0; }
+.duelbtns button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .past .clear td { font-weight: 600; }
 .past p { margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.6; }
 .note { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; line-height: 1.6; }
@@ -257,11 +258,15 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="duelbtns">
       <button type="button" id="skip">どちらでもない</button>
       <button type="button" id="undo">1つ戻す</button>
+      <button type="button" id="optstay" aria-pressed="false">勝ち残り</button>
+      <button type="button" id="optblind" aria-pressed="false">名前を隠す</button>
     </div>
+    <p class="listhead" id="duelnotice" aria-live="polite"></p>
     <section class="past" id="tend"></section>
+    <section class="past" id="check"></section>
     <div class="transfer">
       <button type="button" id="copyduels">記録をコピー</button>
-      <p id="duelnotice" aria-live="polite"></p>
+      <p id="copynotice" aria-live="polite"></p>
     </div>
   </section>
 
@@ -287,6 +292,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>二択: 条件に合った銘柄から、同じ市場の2つを並べます。理由は考えず、良いと思う方を押してください。10回たまると、選んだ方に共通する特徴（下ひげが長い方を選びがち、など）を下に出します。記録はこの端末のブラウザに保存されます。「記録をコピー」で、選んだ結果をまとめて取り出せます。</p>
+    <p>二択の「勝ち残り」を入れると、選んだ方が残って次の相手が出ます。「名前を隠す」を入れると、銘柄名や数字を伏せてチャートの形だけで選べます（選んだ後に名前が出ます）。「答え合わせ」は、選んだ日の株価から今の株価までの値動きを、選んだ方と選ばなかった方で比べたものです。</p>
     <p>株価は Yahoo Finance。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の時価総額300億円以上、米国株は時価総額10億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
@@ -392,6 +398,13 @@ let duels = (() => {
 })();
 const saveDuels = () => { try { localStorage.setItem(DUEL_KEY, JSON.stringify(duels)); } catch {} };
 let duelNotice = "";
+// 二択の設定。stay は勝ち残り（選んだ方を残して次の相手を出す）、blind は名前を隠す
+const OPT_KEY = "duel-opts-v1";
+const opts = (() => {
+  try { return { stay: false, blind: false, ...JSON.parse(localStorage.getItem(OPT_KEY)) }; } catch { return { stay: false, blind: false }; }
+})();
+const saveOpts = () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(opts)); } catch {} };
+let streak = { code: null, n: 0 };  // 勝ち残りで、いま残っている銘柄と連勝の数
 // 比べる特徴。hi は値が大きい方、lo は小さい方の呼び名
 const FEATURES = [
   { key: "wick", name: "下ひげの長さ", hi: "長い方", lo: "短い方" },
@@ -447,23 +460,58 @@ function pairStocks() {
   const stocks = p.codes.map((code) => DATA[p.market].frames[p.frame].stocks.find((s) => s.code === code));
   return stocks.every(Boolean) ? stocks : null;
 }
+const state_codes = (stocks, keep, next) => stocks.map((s) => (s.code === keep ? keep : next));
+// 答え合わせ。選んだ日の株価から今の株価までの値動きを、選んだ方と選ばなかった方で比べる。
+// 値動きに差が付いた回だけ数える（選んだ直後は株価が変わっていないので、数に入らない）
+function checkResult() {
+  const median = (a) => { const v = [...a].sort((x, y) => x - y), m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+  const wins = [], loses = [];
+  let better = 0;
+  for (const d of duels) {
+    const nowW = priceOf(d.market, d.win.code), nowL = priceOf(d.market, d.lose.code);
+    if (!d.win.p || !d.lose.p || !nowW || !nowL) continue;
+    const w = (nowW / d.win.p - 1) * 100, l = (nowL / d.lose.p - 1) * 100;
+    if (w === l) continue;
+    wins.push(w);
+    loses.push(l);
+    if (w > l) better++;
+  }
+  return wins.length ? { n: wins.length, share: (better / wins.length) * 100, win: median(wins), lose: median(loses) } : null;
+}
 function choose(code) {
   const stocks = pairStocks();
   if (!stocks) return;
   const { market, frame } = state.pair;
   const bar = DATA[market].frames[frame].bar;
-  const side = (s) => ({ code: s.code, name: s.name, sector: s.sector || "", f: features(market, frame, s) });
+  // p は選んだ日の株価（答え合わせで、今の株価と比べる）
+  const side = (s) => ({ code: s.code, name: s.name, sector: s.sector || "", p: priceOf(market, s.code), f: features(market, frame, s) });
+  const winner = stocks.find((s) => s.code === code), loser = stocks.find((s) => s.code !== code);
   const d = new Date();
   duels.push({
     key: pairKey(frame, market, bar, stocks[0].code, stocks[1].code),
     t: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
     market, frame, bar,
-    win: side(stocks.find((s) => s.code === code)),
-    lose: side(stocks.find((s) => s.code !== code)),
+    ...(opts.blind ? { blind: true } : {}),
+    win: side(winner),
+    lose: side(loser),
   });
   saveDuels();
+  duelNotice = opts.blind ? `選んだのは ${winner.name}（相手は ${loser.name}）` : "";
   state.pair = null;
-  duelNotice = "";
+  if (opts.stay) {
+    // 選んだ方をそのままの位置に残し、まだ比べていない銘柄から次の相手を出す
+    streak = { code, n: streak.code === code ? streak.n + 1 : 1 };
+    const done = new Set(duels.map((d) => d.key));
+    const rest = DATA[market].frames[frame].stocks
+      .filter((s) => s.code !== code && !done.has(pairKey(frame, market, bar, code, s.code)));
+    if (rest.length) {
+      const next = rest[Math.floor(Math.random() * rest.length)].code;
+      state.pair = { market, frame, codes: state_codes(stocks, code, next) };
+    } else {
+      duelNotice = `${winner.name} が${streak.n}連勝で勝ち残りました（ほかの銘柄とは比べ終わりました）。`;
+      streak = { code: null, n: 0 };
+    }
+  }
   render();
 }
 // 選び方の傾向。特徴ごとに「値が大きい方を選んだ回数」を数える。
@@ -481,8 +529,14 @@ function tendency() {
     return { ...ft, n, side: hi * 2 >= n ? ft.hi : ft.lo, share: n ? (lean / n) * 100 : 0, clear: n >= 20 && lean - n / 2 >= Math.sqrt(n) };
   });
 }
-function pickCard(market, s) {
+function pickCard(market, s, label) {
   const now = priceOf(market, s.code);
+  if (opts.blind) {
+    return `<button type="button" class="card pick" data-pick="${esc(s.code)}" aria-label="${label} の方が良い">
+      <span class="top"><span class="name">${label}</span></span>
+      ${chart(s)}
+    </button>`;
+  }
   return `<button type="button" class="card pick" data-pick="${esc(s.code)}" aria-label="${esc(s.name)} の方が良い">
     <span class="top"><span class="name">${esc(s.name)}</span><span class="vs">下ひげ ${s.wick}%</span></span>
     <span class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">出来高 ${s.volumeRatio}倍</span></span>
@@ -492,14 +546,26 @@ function pickCard(market, s) {
 function renderDuel() {
   if (!pairStocks()) state.pair = nextPair();
   const stocks = pairStocks();
-  document.getElementById("duelcount").textContent = duels.length ? `これまで ${duels.length}回` : "";
+  const onStreak = opts.stay && stocks && stocks.some((s) => s.code === streak.code);
+  document.getElementById("duelcount").textContent =
+    [duels.length ? `これまで ${duels.length}回` : "", onStreak ? `${streak.n}連勝中` : ""].filter(Boolean).join("・");
+  document.getElementById("optstay").setAttribute("aria-pressed", String(opts.stay));
+  document.getElementById("optblind").setAttribute("aria-pressed", String(opts.blind));
+  const check = checkResult();
+  document.getElementById("check").innerHTML = `<h2>答え合わせ<span>選んだ日から今までの値動き</span></h2>` + (check
+    ? `<table><tr><th></th><th>選んだ方</th><th>選ばなかった方</th></tr>`
+      + `<tr><td>値動き（中央値）</td><td>${pct(check.win)}</td><td>${pct(check.lose)}</td></tr></table>`
+      + `<p>選んだ方の値動きが上回ったのは ${check.share.toFixed(0)}%（${check.n}回のうち）。50%より上なら、直感が当たっています。</p>`
+    : `<p>選んでから株価が動くと、選んだ方と選ばなかった方のその後をここで比べます。</p>`);
+  document.getElementById("check").hidden = !duels.length;
   document.getElementById("duelgrid").innerHTML = stocks
-    ? stocks.map((s) => pickCard(state.pair.market, s)).join("")
+    ? stocks.map((s, i) => pickCard(state.pair.market, s, "AB"[i])).join("")
     : `<p class="empty">この足で比べられる組み合わせは、いまはありません。ほかの足を選ぶか、次の更新をお待ちください。</p>`;
   document.getElementById("skip").hidden = !stocks;
   document.getElementById("undo").hidden = !duels.length;
   document.getElementById("copyduels").hidden = !duels.length;
   document.getElementById("duelnotice").textContent = duelNotice;
+  document.getElementById("duelnotice").hidden = !duelNotice;
   const NEED = 10;
   document.getElementById("tend").innerHTML = duels.length < NEED
     ? `<h2>選び方の傾向</h2><p>あと${NEED - duels.length}回選ぶと、選んだ方に共通する特徴をここに出します。</p>`
@@ -509,15 +575,16 @@ function renderDuel() {
         + `<td>${r.share.toFixed(0)}%</td><td>${r.n}回</td></tr>`).join("")
       + `</table><p>50%に近いほど、その特徴では選んでいません。太字は、偶然とは言いにくい差が出たもの（20回以上たまってから付きます）。</p>`;
 }
+let copyNotice = "";
 async function copyDuels() {
   const text = JSON.stringify(duels);
   try {
     await navigator.clipboard.writeText(text);
-    duelNotice = `${duels.length}回分の記録をコピーしました。`;
+    copyNotice = `${duels.length}回分の記録をコピーしました。`;
   } catch {
-    duelNotice = "コピーできませんでした。このブラウザでは使えないようです。";
+    copyNotice = "コピーできませんでした。このブラウザでは使えないようです。";
   }
-  document.getElementById("duelnotice").textContent = duelNotice;
+  document.getElementById("copynotice").textContent = copyNotice;
 }
 
 function chart(s) {
@@ -647,10 +714,21 @@ document.querySelector("main").addEventListener("click", (e) => {
   const pick = e.target.closest(".pick");
   if (pick) choose(pick.dataset.pick);
 });
-document.getElementById("skip").addEventListener("click", () => { state.pair = null; render(); });
+document.getElementById("skip").addEventListener("click", () => { state.pair = null; streak = { code: null, n: 0 }; duelNotice = ""; render(); });
+for (const [id, key] of [["optstay", "stay"], ["optblind", "blind"]]) {
+  document.getElementById(id).addEventListener("click", () => {
+    opts[key] = !opts[key];
+    saveOpts();
+    if (key === "stay") streak = { code: null, n: 0 };
+    duelNotice = "";
+    render();
+  });
+}
 document.getElementById("undo").addEventListener("click", () => {
   duels.pop();
   saveDuels();
+  state.pair = null;
+  streak = { code: null, n: 0 };
   duelNotice = "直前の1回を取り消しました。";
   render();
 });
