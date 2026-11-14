@@ -16,6 +16,12 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 
 しきい値は `screener/pullback.py` と `screener/gallery.py` の先頭にある。
 
+## 二択
+
+「二択」タブは、条件に合った銘柄から同じ市場の2つを並べ、良いと思う方を押して記録する。
+言葉にしにくい選び方を、選んだ方と選ばなかった方の特徴（下ひげの長さ、出来高の増え方、直前の下げ、株価の位置、中期線との距離と向き、時価総額の順位）の差から数える。
+記録はブラウザの localStorage（`duels-v1`）に入り、「記録をコピー」で JSON として取り出せる。処理は `screener/gallery_template.html` の中だけにある。
+
 ## 更新のしかた
 
 `.github/workflows/update.yml` が動かす。

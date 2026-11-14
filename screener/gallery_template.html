@@ -10,7 +10,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場の切り替え → 足（日足・週足・月足）の切り替え → 線の凡例 → チャートのカード（スマホは1列、広い画面は列を増やす） */
+/* レイアウト: 見出し → 市場の切り替え → 足（日足・週足・月足）の切り替え → 線の凡例 → チャートのカード（スマホは1列、広い画面は列を増やす）
+   二択タブでは、カードの代わりに2銘柄を並べ（スマホは縦、広い画面は横）、その下に選び方の傾向を出す */
 :root {
   --bg: #f3f5f9;
   --surface: #ffffff;
@@ -97,8 +98,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   background: transparent;
   color: var(--muted);
   font-size: 0.875rem;
-  padding: 6px 18px;
+  padding: 6px 14px;
   border-radius: 999px;
+  white-space: nowrap;
 }
 .market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.75rem; }
@@ -184,7 +186,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   font-size: 0.875rem;
 }
 .transfer { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.transfer button {
+.duelbtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.transfer button, .duelbtns button {
   appearance: none;
   padding: 6px 16px;
   border: 1px solid var(--line);
@@ -202,6 +205,24 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .since b { font-weight: 500; }
 .card .since .gain { color: var(--up); }
 .card .since .loss { color: var(--down); }
+.duel { display: flex; flex-direction: column; gap: 10px; }
+.duelgrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 640px) { .duelgrid { grid-template-columns: 1fr 1fr; } }
+/* 二択のカードは、押すと「こっちが良い」と記録するボタン（株探へのリンクや☆は付けない） */
+.pick {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 8px;
+  text-align: left;
+}
+.pick:active { border-color: var(--accent); background: var(--band); }
+/* スマホでは、押した後に出た次のカードへ hover の枠が残るので消す（枠が付いた方を選びやすくなってしまう） */
+@media (hover: none) { .card.pick:hover { border-color: var(--line); } }
+.card.pick .top { padding-left: 0; }
+.past .clear td { font-weight: 600; }
+.past p { margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.6; }
 .note { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; line-height: 1.6; }
 .note p { margin: 0; }
 </style>
@@ -217,6 +238,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" id="tab-jp" data-market="jp" aria-selected="true">日本株</button>
     <button type="button" role="tab" id="tab-us" data-market="us" aria-selected="false">米国株</button>
     <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 保留</button>
+    <button type="button" role="tab" id="tab-duel" data-market="duel" aria-selected="false">二択</button>
   </div>
 
   <div class="market" id="frames" role="tablist" aria-label="足の種類">
@@ -228,6 +250,20 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="legend" id="legend" aria-label="チャートの見方"></div>
 
   <section class="past" id="past" hidden></section>
+
+  <section class="duel" id="duel" hidden>
+    <h2 class="sechead">どっちが良い？<span id="duelcount"></span></h2>
+    <div class="duelgrid" id="duelgrid"></div>
+    <div class="duelbtns">
+      <button type="button" id="skip">どちらでもない</button>
+      <button type="button" id="undo">1つ戻す</button>
+    </div>
+    <section class="past" id="tend"></section>
+    <div class="transfer">
+      <button type="button" id="copyduels">記録をコピー</button>
+      <p id="duelnotice" aria-live="polite"></p>
+    </div>
+  </section>
 
   <section id="topsec">
     <h2 class="sechead">TOP 5<span id="topnote">下ひげの長さ × 出来高の増え方</span></h2>
@@ -250,6 +286,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>過去の成績: 同じ条件を過去の足すべてに当てはめ、条件に合った銘柄の終値が、その何本か後の終値までにどう動いたかを集計したもの（日足・週足は過去2年、月足は過去10年）。「値動き」は中央値（大きい順に並べたときの真ん中の値）。カッコ内は、同じ時期の全銘柄（このページの対象銘柄）の値。いま上場している銘柄だけで計算しているので、実際より少し良く出ます。将来の値動きを約束するものではありません。</p>
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
+    <p>二択: 条件に合った銘柄から、同じ市場の2つを並べます。理由は考えず、良いと思う方を押してください。10回たまると、選んだ方に共通する特徴（下ひげが長い方を選びがち、など）を下に出します。記録はこの端末のブラウザに保存されます。「記録をコピー」で、選んだ結果をまとめて取り出せます。</p>
     <p>株価は Yahoo Finance。業種は、日本株が東証の33業種、米国株が Yahoo Finance のセクター（11分類）。日本株は東証の時価総額300億円以上、米国株は時価総額10億ドル以上が対象で、時価総額の大きい順に並べています。</p>
   </footer>
 </main>
@@ -257,7 +294,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <script>
 const DATA = __DATA__;
 const STEP = 20;
-const state = { market: "jp", frame: "w", shown: STEP };
+const state = { market: "jp", frame: "w", shown: STEP, pair: null };  // pair は二択でいま並べている2銘柄
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
   d: { name: "日足", ma: ["5日線", "25日線", "75日線"], after: "日後" },
@@ -347,6 +384,142 @@ function toggleFav(market, code) {
   render();
 }
 
+// 二択。条件に合った銘柄を2つ並べ、良いと思う方を押してもらう。理由は聞かず、
+// 選んだ方・選ばなかった方の特徴（features）を記録して、あとから共通点を数える。この端末のブラウザに保存する
+const DUEL_KEY = "duels-v1";
+let duels = (() => {
+  try { return JSON.parse(localStorage.getItem(DUEL_KEY)) || []; } catch { return []; }
+})();
+const saveDuels = () => { try { localStorage.setItem(DUEL_KEY, JSON.stringify(duels)); } catch {} };
+let duelNotice = "";
+// 比べる特徴。hi は値が大きい方、lo は小さい方の呼び名
+const FEATURES = [
+  { key: "wick", name: "下ひげの長さ", hi: "長い方", lo: "短い方" },
+  { key: "vol", name: "出来高の増え方", hi: "大きい方", lo: "小さい方" },
+  { key: "drop", name: "直前の下げ", hi: "深い方", lo: "浅い方" },
+  { key: "pos", name: "株価の位置", hi: "高い方", lo: "低い方" },
+  { key: "vsMid", name: "中期線との距離", hi: "上にある方", lo: "下にある方" },
+  { key: "trend", name: "中期線の向き", hi: "上向きの方", lo: "下向きの方" },
+  { key: "capRank", name: "時価総額", hi: "小さい方", lo: "大きい方" },  // 順位なので、数が大きいほど時価総額は小さい
+];
+// 下ひげを付けた足の時点での特徴。どれも % （capRank だけは市場の中での時価総額の順位）
+function features(market, frame, s) {
+  const i = s.signal, c = s.c[i];
+  const upTo = (arr, from) => arr.slice(Math.max(0, from), i + 1).filter((v) => v != null);
+  const high = Math.max(...upTo(s.h, 0)), low = Math.min(...upTo(s.l, 0));
+  const recentHigh = Math.max(...upTo(s.h, i - 10));
+  const mid = s.maM[i], midBefore = s.maM[i - 8];
+  const r = (v) => (v == null || !isFinite(v) ? null : Math.round(v * 10) / 10);
+  return {
+    wick: s.wick,                                               // 下ひげの長さ（株価比）
+    vol: s.volumeRatio,                                         // 出来高の倍率
+    drop: r((1 - s.l[i] / recentHigh) * 100),                   // 直近10本の高値から、下ひげの先までの下げ
+    pos: r(high > low ? ((c - low) / (high - low)) * 100 : null),  // チャートの値幅の中での終値の位置（0が底、100が天井）
+    vsMid: r(mid ? (c / mid - 1) * 100 : null),                 // 終値が中期線より何%上か
+    trend: r(mid && midBefore ? (mid / midBefore - 1) * 100 : null),  // 中期線が8本前から何%動いたか
+    capRank: DATA[market].frames[frame].stocks.findIndex((x) => x.code === s.code) + 1,
+  };
+}
+const pairKey = (frame, market, bar, a, b) => [frame, market, bar, ...[a, b].sort()].join("|");
+// 次の2銘柄。同じ市場の中から、まだ選んでいない組み合わせを無作為に出す（市場は半々で選ぶ）
+function nextPair() {
+  const frame = state.frame;
+  const done = new Set(duels.map((d) => d.key));
+  const pools = ["jp", "us"].map((market) => {
+    const { bar, stocks } = DATA[market].frames[frame];
+    const pairs = [];
+    for (let i = 0; i < stocks.length; i++) {
+      for (let j = i + 1; j < stocks.length; j++) {
+        if (!done.has(pairKey(frame, market, bar, stocks[i].code, stocks[j].code))) pairs.push([stocks[i].code, stocks[j].code]);
+      }
+    }
+    return { market, pairs };
+  }).filter((p) => p.pairs.length);
+  if (!pools.length) return null;
+  const pool = pools[Math.floor(Math.random() * pools.length)];
+  const pair = pool.pairs[Math.floor(Math.random() * pool.pairs.length)];
+  if (Math.random() < 0.5) pair.reverse();  // 時価総額の大きい方がいつも先に出ないようにする
+  return { market: pool.market, frame, codes: pair };
+}
+function pairStocks() {
+  const p = state.pair;
+  if (!p || p.frame !== state.frame) return null;
+  const stocks = p.codes.map((code) => DATA[p.market].frames[p.frame].stocks.find((s) => s.code === code));
+  return stocks.every(Boolean) ? stocks : null;
+}
+function choose(code) {
+  const stocks = pairStocks();
+  if (!stocks) return;
+  const { market, frame } = state.pair;
+  const bar = DATA[market].frames[frame].bar;
+  const side = (s) => ({ code: s.code, name: s.name, sector: s.sector || "", f: features(market, frame, s) });
+  const d = new Date();
+  duels.push({
+    key: pairKey(frame, market, bar, stocks[0].code, stocks[1].code),
+    t: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    market, frame, bar,
+    win: side(stocks.find((s) => s.code === code)),
+    lose: side(stocks.find((s) => s.code !== code)),
+  });
+  saveDuels();
+  state.pair = null;
+  duelNotice = "";
+  render();
+}
+// 選び方の傾向。特徴ごとに「値が大きい方を選んだ回数」を数える。
+// 半々（偶然）から標準偏差の2倍以上ずれたものを「差あり」とする（20回以上たまってから）
+function tendency() {
+  return FEATURES.map((ft) => {
+    let n = 0, hi = 0;
+    for (const d of duels) {
+      const w = d.win.f[ft.key], l = d.lose.f[ft.key];
+      if (w == null || l == null || w === l) continue;
+      n++;
+      if (w > l) hi++;
+    }
+    const lean = hi * 2 >= n ? hi : n - hi;
+    return { ...ft, n, side: hi * 2 >= n ? ft.hi : ft.lo, share: n ? (lean / n) * 100 : 0, clear: n >= 20 && lean - n / 2 >= Math.sqrt(n) };
+  });
+}
+function pickCard(market, s) {
+  const now = priceOf(market, s.code);
+  return `<button type="button" class="card pick" data-pick="${esc(s.code)}" aria-label="${esc(s.name)} の方が良い">
+    <span class="top"><span class="name">${esc(s.name)}</span><span class="vs">下ひげ ${s.wick}%</span></span>
+    <span class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">出来高 ${s.volumeRatio}倍</span></span>
+    ${chart(s)}
+  </button>`;
+}
+function renderDuel() {
+  if (!pairStocks()) state.pair = nextPair();
+  const stocks = pairStocks();
+  document.getElementById("duelcount").textContent = duels.length ? `これまで ${duels.length}回` : "";
+  document.getElementById("duelgrid").innerHTML = stocks
+    ? stocks.map((s) => pickCard(state.pair.market, s)).join("")
+    : `<p class="empty">この足で比べられる組み合わせは、いまはありません。ほかの足を選ぶか、次の更新をお待ちください。</p>`;
+  document.getElementById("skip").hidden = !stocks;
+  document.getElementById("undo").hidden = !duels.length;
+  document.getElementById("copyduels").hidden = !duels.length;
+  document.getElementById("duelnotice").textContent = duelNotice;
+  const NEED = 10;
+  document.getElementById("tend").innerHTML = duels.length < NEED
+    ? `<h2>選び方の傾向</h2><p>あと${NEED - duels.length}回選ぶと、選んだ方に共通する特徴をここに出します。</p>`
+    : `<h2>選び方の傾向<span>${duels.length}回の結果から</span></h2>`
+      + `<table><tr><th></th><th>選びがちな方</th><th>割合</th><th>回数</th></tr>`
+      + tendency().filter((r) => r.n).map((r) => `<tr${r.clear ? ` class="clear"` : ""}><td>${r.name}</td><td>${r.side}</td>`
+        + `<td>${r.share.toFixed(0)}%</td><td>${r.n}回</td></tr>`).join("")
+      + `</table><p>50%に近いほど、その特徴では選んでいません。太字は、偶然とは言いにくい差が出たもの（20回以上たまってから付きます）。</p>`;
+}
+async function copyDuels() {
+  const text = JSON.stringify(duels);
+  try {
+    await navigator.clipboard.writeText(text);
+    duelNotice = `${duels.length}回分の記録をコピーしました。`;
+  } catch {
+    duelNotice = "コピーできませんでした。このブラウザでは使えないようです。";
+  }
+  document.getElementById("duelnotice").textContent = duelNotice;
+}
+
 function chart(s) {
   const W = 320, H = 160, P = 6, n = s.c.length;
   const values = [...s.h, ...s.l, ...s.maS, ...s.maM, ...s.maL].filter((v) => v != null);
@@ -408,8 +581,10 @@ function render() {
   const head = document.getElementById("listhead");
   const grid = document.getElementById("grid");
   const isFavTab = state.market === "fav";
-  document.getElementById("topsec").hidden = isFavTab;
-  document.getElementById("listtitle").hidden = isFavTab;
+  const isDuel = state.market === "duel";
+  document.getElementById("topsec").hidden = isFavTab || isDuel;
+  document.getElementById("listtitle").hidden = isFavTab || isDuel;
+  document.getElementById("duel").hidden = !isDuel;
   document.getElementById("transfer").hidden = !isFavTab;
   document.getElementById("send").hidden = !favs.length;
   document.getElementById("notice").textContent = notice;
@@ -422,6 +597,15 @@ function render() {
 
   const pastBox = document.getElementById("past");
   pastBox.hidden = true;
+
+  if (isDuel) {
+    sub.textContent = "理由は考えず、良いと思う方を押してください";
+    head.innerHTML = "";
+    grid.innerHTML = "";
+    document.getElementById("more").hidden = true;
+    renderDuel();
+    return;
+  }
 
   if (isFavTab) {
     sub.textContent = "☆を付けて保留した銘柄（新しく保留した順）";
@@ -460,7 +644,17 @@ document.getElementById("send").addEventListener("click", sendFavs);
 document.querySelector("main").addEventListener("click", (e) => {
   const b = e.target.closest(".star");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
+  const pick = e.target.closest(".pick");
+  if (pick) choose(pick.dataset.pick);
 });
+document.getElementById("skip").addEventListener("click", () => { state.pair = null; render(); });
+document.getElementById("undo").addEventListener("click", () => {
+  duels.pop();
+  saveDuels();
+  duelNotice = "直前の1回を取り消しました。";
+  render();
+});
+document.getElementById("copyduels").addEventListener("click", copyDuels);
 document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
