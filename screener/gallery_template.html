@@ -10,7 +10,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場の切り替え → 足（日足・週足・月足）の切り替え → 線の凡例 → チャートのカード（スマホは1列、広い画面は列を増やす）
+/* レイアウト: 見出し → 市場の切り替えと、その右に足（日足・週足・月足）の切り替え（狭い画面では下の段に回る）→ 線の凡例
+   → チャートのカード（スマホは1列、広い画面は3列まで）→ 過去の成績
    二択タブでは、カードの代わりに2銘柄を並べ（スマホは縦、広い画面は横）、その下に選び方の傾向を出す */
 :root {
   --bg: #f3f5f9;
@@ -70,7 +71,7 @@
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; -webkit-text-size-adjust: 100%; }
 [hidden] { display: none !important; }
 .wrap {
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
   padding-block: 20px 40px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -83,6 +84,7 @@ h1 { font-size: 1.375rem; font-weight: 600; margin: 0; text-wrap: balance; }
 .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; line-height: 1.5; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .market {
   display: inline-flex;
   align-self: flex-start;
@@ -119,7 +121,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .past td small { color: var(--muted); font-size: 0.6875rem; margin-left: 4px; }
 .listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 12px; }
 /* カードは銘柄ページへのリンクと、その左上に重ねた☆ボタン（リンクの中にボタンは置けないので重ねる） */
 .card {
   position: relative;
@@ -235,6 +237,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p class="sub" id="sub">長い下ひげを付けて、出来高が増えた銘柄</p>
   </header>
 
+  <div class="tabs">
   <div class="market" role="tablist" aria-label="市場">
     <button type="button" role="tab" id="tab-jp" data-market="jp" aria-selected="true">日本株</button>
     <button type="button" role="tab" id="tab-us" data-market="us" aria-selected="false">米国株</button>
@@ -247,10 +250,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
     <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
   </div>
+  </div>
 
   <div class="legend" id="legend" aria-label="チャートの見方"></div>
-
-  <section class="past" id="past" hidden></section>
 
   <section class="duel" id="duel" hidden>
     <h2 class="sechead">どっちが良い？<span id="duelcount"></span></h2>
@@ -283,6 +285,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
   <div class="grid" id="grid"></div>
   <button type="button" id="more" hidden>もっと見る</button>
+
+  <section class="past" id="past" hidden></section>
 
   <footer class="note">
     <p>条件: トレンドは問わず、取引が終わった直近の足で、下ひげが値幅（高値−安値）の33%以上・株価の2%以上、出来高がその前の平均（日足は25日、週足は13週、月足は12か月）の1.5倍以上で、陽線（終値が始値より上）で終わった銘柄を、時価総額の大きい順に並べる。日足・週足・月足のどれも同じ条件。</p>
@@ -590,7 +594,7 @@ async function copyDuels() {
 }
 
 function chart(s) {
-  const W = 320, H = 160, P = 6, n = s.c.length;
+  const W = 320, H = 180, P = 6, n = s.c.length;
   const values = [...s.h, ...s.l, ...s.maS, ...s.maM, ...s.maL].filter((v) => v != null);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
