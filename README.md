@@ -1,4 +1,4 @@
-# Fastgraph
+# PEREGRAPH
 
 日足・週足・月足で「長い下ひげを付けて、出来高が増えた」銘柄を、日本株・米国株それぞれチャートで並べたページ。
 無料のデータ（Yahoo Finance と JPX）だけで作り、GitHub Actions が平日に更新して GitHub Pages で公開している。
