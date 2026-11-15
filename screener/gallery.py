@@ -54,9 +54,6 @@ MIN_PRICE = {"jp": 100, "us": 5}
 # 持ち株タブ用に株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
 # 持っている銘柄が一覧の下限より小さくても状態を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
-# 持ち株タブで印を付ける長いひげは、高値（安値）が直近この本数でいちばん高い（安い）足だけにする。
-# 値動きの途中のひげまで拾うと印だらけになる。効くのは、高いところの上ひげと安いところの下ひげ
-WICK_EXTREME_BARS = 8
 # 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
 # ふだんほとんど売買の無い銘柄は、少し買いが入っただけで出来高の倍率が大きくなるので外す。
 # 平均でなく中央値にするのは、出来高が跳ねた数日（下ひげを付けた日など）だけで通らないようにするため
@@ -158,7 +155,7 @@ def _frame(frame, market, info, bars, min_market_cap):
 
 
 def _holdings(market, info, bars):
-    """持ち株タブ用に、株価を取った全銘柄の週足のローソク足と、いまの状態（breakdown.state）、長いひげを作る。
+    """持ち株タブ用に、株価を取った全銘柄の週足の終値と、いまの状態（breakdown.state）を作る。
 
     ページで登録した銘柄だけを出すが、どの銘柄が登録されるかはページを作る側では分からないので、全銘柄ぶん持たせる。
     """
@@ -167,14 +164,8 @@ def _holdings(market, info, bars):
     at = -1 if _bar_done(shown[-1], "w", market) else -2
     done = len(close) + at + 1           # 取引が終わった足の数。状態はここまでで決める
     first = len(close) - len(shown)      # チャートの左端の足が、全体の何本目か
-    # 長いひげ（行が足、列が銘柄）。高値・安値が直近でいちばんの足だけ残す
-    with np.errstate(invalid="ignore"):
-        upper, lower = pullback.long_wicks(bars["open"], bars["high"], bars["low"], close)
-    upper &= bars["high"] >= bars["high"].rolling(WICK_EXTREME_BARS, min_periods=1).max()
-    lower &= bars["low"] <= bars["low"].rolling(WICK_EXTREME_BARS, min_periods=1).min()
     stocks = {}
     for symbol in close.columns.intersection(info.index):
-        o, h, low = (bars[key][symbol].to_numpy(dtype=float)[first:] for key in ["open", "high", "low"])
         values = close[symbol].to_numpy(dtype=float)
         if np.isnan(values[first:]).all():
             continue
@@ -183,9 +174,6 @@ def _holdings(market, info, bars):
         stocks[row["code"]] = {
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
-            "o": [_round(v) for v in o],
-            "h": [_round(v) for v in h],
-            "l": [_round(v) for v in low],
             "c": [_round(v) for v in values[first:]],
             "trend": state["trend"],
             "ago": None if state["since"] is None else done - 1 - state["since"],  # いまの向きになって何本たったか
@@ -195,9 +183,6 @@ def _holdings(market, info, bars):
             "range": [_round(v) for v in state["range"]] if state["range"] else None,  # 横ばいの [下限, 上限]
             # チャートに収まる山と谷の [左から何本目か, 終値, 山なら1]
             "pivots": [[i - first, _round(value), int(high)] for i, value, high in state["pivots"] if i >= first],
-            # 取引が終わった足のうち、長い上ひげ・長い下ひげを付けた足（左から何本目か）
-            "upper": np.flatnonzero(upper[symbol].to_numpy()[first:done]).tolist(),
-            "lower": np.flatnonzero(lower[symbol].to_numpy()[first:done]).tolist(),
         }
     return {"bar": BAR_NAME["w"].format(shown[at]), "signal": len(shown) + at, "stocks": stocks}
 
@@ -240,7 +225,7 @@ def _published(log):
     try:
         data = json.loads(published.payload())
         return {market: value for market, value in data.items()
-                if set(value.get("frames", {})) == set(FRAMES) and "o" in next(iter(value.get("hold", {}).get("stocks", {}).values()), {})}
+                if set(value.get("frames", {})) == set(FRAMES) and "hold" in value}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
         return {}

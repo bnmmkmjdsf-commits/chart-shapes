@@ -22,7 +22,7 @@
   --on-accent: #ffffff;
   --band: rgba(33, 96, 208, 0.12);
   --up: #d93f45;      /* 陽線（証券会社アプリと同じく赤） */
-  --down: #22936a;    /* 陰線（緑） */
+  --down: #2a6fdb;    /* 陰線（青） */
   --ma13: #b88700;
   --ma26: #e0662f;
   --ma52: #1f8a8a;
@@ -41,7 +41,7 @@
     --on-accent: #0c1324;
     --band: rgba(107, 159, 255, 0.16);
     --up: #f0656a;
-    --down: #3dbb84;
+    --down: #5b9bff;
     --ma13: #e6c34a;
     --ma26: #f08a5d;
     --ma52: #5cc1c1;
@@ -59,7 +59,7 @@
   --on-accent: #0c1324;
   --band: rgba(107, 159, 255, 0.16);
   --up: #f0656a;
-  --down: #3dbb84;
+  --down: #5b9bff;
   --ma13: #e6c34a;
   --ma26: #f08a5d;
   --ma52: #5cc1c1;
@@ -166,9 +166,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 持ち株: 山と谷の印（短い横線）と、節目の株価の点線 */
 .lowmark { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
 .lowline { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 3 3; }
-/* 持ち株: 長いひげの三角、状態の札、銘柄を足す欄 */
-.wickmark { fill: var(--fg); }
-.badges { flex: none; display: inline-flex; gap: 6px; }
+/* 持ち株: 終値の折れ線、状態の札、銘柄を足す欄 */
+.closeline { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; }
 .badge { flex: none; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.broke { background: var(--fg); border-color: var(--fg); color: var(--bg); }
 .badge.caution { background: var(--star); border-color: var(--star); color: #15213a; }
@@ -452,72 +451,38 @@ function holdNext(market, s, status) {
     ? ` 週の終値が <b>${money(market, s.level)}</b> を割ると崩れ（いまから ${gap}）`
     : ` 週の終値が <b>${money(market, s.level)}</b> を超えると反転（いまから ${gap}）`);
 }
-// 持ち株のローソク足。山の上・谷の下に短い横線、節目の株価に点線、長いひげを付けた足に三角
-function holdChart(s, signal) {
-  const W = 320, H = 180, P = 16, n = s.c.length;
+// 終値の折れ線。山の上・谷の下に短い横線、次に向きが切り替わる株価に点線
+function lineChart(s, signal) {
+  const W = 320, H = 180, P = 14, n = s.c.length;
   // 点線は、横ばいなら上限と下限、そうでなければ次に向きが切り替わる株価
   const levels = s.range || (s.level == null ? [] : [s.level]);
-  const values = [...s.h, ...s.l, ...s.c].filter((v) => v != null).concat(levels);
+  const values = s.c.filter((v) => v != null).concat(levels);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
-  const step = W / n, body = Math.max(1, step * 0.62);
+  const step = W / n;
   const x = (i) => (i + 0.5) * step;
   const y = (v) => P + ((max - v) / span) * (H - 2 * P);
   const f = (v) => v.toFixed(1);
-  const candles = s.c.map((c, i) => {
-    const o = s.o[i], h = s.h[i], l = s.l[i];
-    if ([o, h, l, c].some((v) => v == null)) return "";
-    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
-    return `<g class="${c >= o ? "up" : "down"}">
-      <line x1="${f(x(i))}" x2="${f(x(i))}" y1="${f(y(h))}" y2="${f(y(l))}"></line>
-      <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
-    </g>`;
+  const pts = s.c.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
+  const marks = s.pivots.map(([i, v, high]) => {
+    const at = y(v) + (high ? -7 : 7);
+    return `<line class="lowmark" x1="${f(x(i) - 7)}" x2="${f(x(i) + 7)}" y1="${f(at)}" y2="${f(at)}"></line>`;
   }).join("");
-  // 山と谷の印は、ひげの外側に置く（終値で決めているが、足に重ならないように）
-  const edge = (i, high) => (high ? y(s.h[i] ?? s.c[i]) : y(s.l[i] ?? s.c[i]));
-  const marks = s.pivots.map(([i, , high]) => {
-    const at = edge(i, high) + (high ? -4 : 4);
-    return `<line class="lowmark" x1="${f(x(i) - 6)}" x2="${f(x(i) + 6)}" y1="${f(at)}" y2="${f(at)}"></line>`;
-  }).join("");
-  const isPivot = (i, high) => s.pivots.some((p) => p[0] === i && Boolean(p[2]) === high);
-  const tri = (i, high) => {
-    const tip = edge(i, high) + (high ? -1 : 1) * (isPivot(i, high) ? 7 : 3), far = tip + (high ? -6 : 6);
-    return `<polygon class="wickmark" points="${f(x(i))},${f(tip)} ${f(x(i) - 3.5)},${f(far)} ${f(x(i) + 3.5)},${f(far)}"></polygon>`;
-  };
-  const wicks = (s.upper || []).map((i) => tri(i, true)).join("") + (s.lower || []).map((i) => tri(i, false)).join("");
   const level = levels.map((v) => `<line class="lowline" x1="0" x2="${W}" y1="${f(y(v))}" y2="${f(y(v))}"></line>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足のローソク足チャート">
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足の終値の折れ線">
     <rect class="band" x="${f(signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>
-    ${level}${candles}${marks}${wicks}
+    ${level}<polyline class="closeline" points="${pts}"></polyline>${marks}
   </svg>`;
-}
-// 直近 WICK_BARS 週のうち、いちばん新しい長いひげ。{ upper: 上ひげか, ago: 何週前か }。無ければ null
-const WICK_BARS = 4;
-function recentWick(s, signal) {
-  const found = [...(s.upper || []).map((i) => ({ upper: true, ago: signal - i })),
-    ...(s.lower || []).map((i) => ({ upper: false, ago: signal - i }))]
-    .filter((w) => w.ago >= 0 && w.ago < WICK_BARS).sort((a, b) => a.ago - b.ago);
-  if (!found.length) return null;
-  // 同じ週に上ひげも下ひげも長いときは、どちらとも言えないので両方と書く
-  const both = found.filter((w) => w.ago === found[0].ago).length > 1;
-  return { ...found[0], both };
-}
-function wickNote(w) {
-  const when = w.ago === 0 ? "直近の週" : `${w.ago}週前`;
-  return w.both ? `${when}に、上ひげも下ひげも長い足（売りと買いが押し合った印）`
-    : w.upper ? `${when}に長い上ひげ（上で売りに押された印）` : `${when}に長い下ひげ（下で買いが入った印）`;
 }
 function holdCard(h) {
   const data = holdData(h.market), s = data.stocks[h.code];
   const status = holdStatus(s);
   const now = priceOf(h.market, h.code);
-  const wick = s ? recentWick(s, data.signal) : null;
-  const wickBadge = wick ? `<span class="badge">${wick.both ? "上下ひげ" : wick.upper ? "上ひげ" : "下ひげ"}</span>` : "";
   return `<div class="card">
     <a href="${esc(detailUrl(h.market, h.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="nm"><span class="name" title="${esc(s ? s.name : h.code)}">${esc(s ? s.name : h.code)}</span></span>${s ? `<span class="badges">${wickBadge}<span class="badge ${status.key}">${status.label}</span></span>` : ""}</div>
+      <div class="top"><span class="nm"><span class="name" title="${esc(s ? s.name : h.code)}">${esc(s ? s.name : h.code)}</span></span>${s ? `<span class="badge ${status.key}">${status.label}</span>` : ""}</div>
       <div class="meta"><span class="id">${esc(h.code)}${now != null ? `<span class="price">${money(h.market, now)}</span>` : ""}${s && s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
-      ${s ? `<div class="next">${holdNext(h.market, s, status)}${wick ? `<br>ひげ: ${wickNote(wick)}` : ""}</div>${holdChart(s, data.signal)}` : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
+      ${s ? `<div class="next">${holdNext(h.market, s, status)}</div>${lineChart(s, data.signal)}` : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
     </a>
     <button type="button" class="star drop" data-hold-market="${h.market}" data-code="${esc(h.code)}" aria-label="持ち株から外す">×</button>
   </div>`;
@@ -623,7 +588,7 @@ function render() {
   const lines = isFavTab ? ["短期線", "中期線", "長期線"] : FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML = isHold
     ? `<span><i class="klow"></i>山と谷</span><span><i class="klow" style="border-top-style:dashed;border-top-width:1px"></i>節目の株価</span>`
-      + `<span>▼ 長い上ひげ</span><span>▲ 長い下ひげ</span><span><i class="kband"></i>状態を決めた週</span>`
+      + `<span><i class="kband"></i>状態を決めた週</span>`
     : `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
       + `<span><i class="kband"></i>${isFavTab ? "条件に合った足" : "下ひげを付けた足"}</span>`;
 

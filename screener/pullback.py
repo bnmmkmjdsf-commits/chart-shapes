@@ -20,16 +20,6 @@ def moving_averages(close, windows):
     return [close.rolling(n).mean() for n in windows]
 
 
-def long_wicks(o, h, low, c):
-    """足ごとに、長い上ひげ・長い下ひげがあるか（形だけで見る。出来高や陽線かどうかは問わない）。
-
-    長さの基準は下ひげの条件と同じ（値幅の WICK_OF_RANGE 以上、かつ株価の WICK_OF_PRICE 以上）
-    """
-    upper, lower = h - np.maximum(o, c), np.minimum(o, c) - low
-    need = np.maximum((h - low) * WICK_OF_RANGE, c * WICK_OF_PRICE)
-    return upper >= need, lower >= need
-
-
 def _signals(bars, volume_window):
     """すべての足について、下ひげの長さ（株価比）・出来高の倍率・条件に合うかの表（行が足、列が銘柄）"""
     o, h, low, c, volume = (bars[key] for key in ["open", "high", "low", "close", "volume"])
