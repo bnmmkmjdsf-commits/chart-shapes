@@ -5,6 +5,7 @@ Yahoo Finance と JPX からデータを取って作る。GitHub Actions で平�
     python -m screener.gallery                  → site/index.html
     python -m screener.gallery --out page.html
     python -m screener.gallery --markets jp     日本株だけ取り直す（米国株は公開中のページのデータを使う）
+    python -m screener.gallery --markets jp --hourly   取引時間中の更新。日本株の1時間足だけを、一覧の銘柄と watch.json の銘柄について取り直す
 
 見た目だけ変えたときは、株価を取り直さない screener.retemplate で作り直せる。
 """
@@ -27,6 +28,9 @@ FRAMES = {
     "m": {"label": "月足", "ma": (12, 24, 60)},
 }
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
+# 取引時間中にも1時間足を更新する銘柄（持ち株と注目）のコード。{"jp": [...], "us": [...]}。
+# 持ち株と注目はブラウザの中にしか無く、ページを作る側からは見えないので、ここに書いて教える
+WATCH = Path(__file__).resolve().parent.parent / "watch.json"
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 # 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
 US_SECTORS = {
@@ -159,42 +163,58 @@ def _frame(frame, market, info, bars, listed):
     return {"bar": BAR_NAME[frame].format(shown[at]), "signal": signal, "up": side(1), "down": side(-1)}, found
 
 
+def _charts(frame, bars, symbols):
+    """銘柄ごとのファイルに入れる、1つの足の種類のチャート。{銘柄: {c, p, o, h, l}}。
+
+    c はチャートに描く終値、p はそれより前の終値（移動平均を描くのに使う）。
+    o・h・l は終値からのずれを千分率で持つ（ファイルを軽くするため）:
+    始値は終値から、高値は始値と終値の高い方から上へ、安値は低い方から下へ。
+    """
+    close = bars["close"]
+    first = max(0, len(close) - CHART_BARS)
+    before = max(0, first - max(FRAMES[frame]["ma"]))
+    tables = {key: bars[key].to_numpy(dtype=float) for key in ["open", "high", "low", "close"]}
+    charts = {}
+    for column, symbol in enumerate(close.columns):
+        if symbol not in symbols:
+            continue
+        o, h, low, c = (tables[key][first:, column] for key in ["open", "high", "low", "close"])
+        if np.isnan(c).all():
+            continue
+        with np.errstate(invalid="ignore", divide="ignore"):
+            charts[symbol] = {
+                "c": [_round(v) for v in c],
+                "p": [_round(v) for v in tables["close"][before:first, column]],
+                "o": _permille(o / c - 1),
+                "h": _permille(h / np.maximum(o, c) - 1),
+                "l": _permille(1 - low / np.minimum(o, c)),
+            }
+    return charts
+
+
+def _write_stock(folder, code, data):
+    (folder / f"{code}.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+
 def _stock_files(info, frames, folder):
     """持ち株と注目のカード用に、株価を取った全銘柄のチャートを、銘柄ごとのファイル（コード.json）に書き出す。
 
     どの銘柄が登録されるかはページを作る側では分からない。全銘柄ぶんをページに埋め込むと重いので、
     ファイルを分けて、ページが要る銘柄だけ読みに行く。frames は {足の種類: ローソク足の表}。
-    ファイルの中身は {name, sector, 足の種類: {c, p, o, h, l}}。c はチャートに描く終値、p はそれより前の終値（移動平均を描くのに使う）。
-    o・h・l は終値からのずれを千分率で持つ（ファイルを軽くするため）:
-    始値は終値から、高値は始値と終値の高い方から上へ、安値は低い方から下へ。
+    ファイルの中身は {name, sector, 足の種類: _charts の1銘柄ぶん}。
     """
     folder.mkdir(parents=True, exist_ok=True)
     for old in folder.glob("*.json"):  # 上場をやめた銘柄のファイルを残さない
         old.unlink()
     stocks = {}
+    symbols = set(info.index)
     for frame, bars in frames.items():
-        close = bars["close"]
-        first = max(0, len(close) - CHART_BARS)
-        before = max(0, first - max(FRAMES[frame]["ma"]))
-        tables = {key: bars[key].to_numpy(dtype=float) for key in ["open", "high", "low", "close"]}
-        for column, symbol in enumerate(close.columns):
-            if symbol not in info.index:
-                continue
-            o, h, low, c = (tables[key][first:, column] for key in ["open", "high", "low", "close"])
-            if np.isnan(c).all():
-                continue
-            with np.errstate(invalid="ignore", divide="ignore"):
-                stocks.setdefault(symbol, {})[frame] = {
-                    "c": [_round(v) for v in c],
-                    "p": [_round(v) for v in tables["close"][before:first, column]],
-                    "o": _permille(o / c - 1),
-                    "h": _permille(h / np.maximum(o, c) - 1),
-                    "l": _permille(1 - low / np.minimum(o, c)),
-                }
+        for symbol, chart in _charts(frame, bars, symbols).items():
+            stocks.setdefault(symbol, {})[frame] = chart
     for symbol, charts in stocks.items():
         row = info.loc[symbol]
-        data = {"name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"], **charts}
-        (folder / f"{row['code']}.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        _write_stock(folder, row["code"],
+                     {"name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"], **charts})
     return len(stocks)
 
 
@@ -234,8 +254,46 @@ def _build(market, log, site):
                 crosses.setdefault(info.at[symbol, "code"], {})[frame] = list(last)
     count = _stock_files(info, {"h": hourly, "d": daily, "w": weekly, "m": monthly}, site / STOCK_DIR / market)
     log(f"{market}: 銘柄ごとのチャートのファイルを {count:,} 個書き出しました")
-    # cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き, 何本前か]}}。持ち株と注目のカードの札に使う
-    return {"frames": frames, "cross": crosses, "prices": _prices(info, daily)}
+    # cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き, 何本前か]}}。持ち株と注目のカードの札に使う。
+    # top は、一覧に載せる銘柄の [銘柄, コード, 名前, 業種]（売買代金の大きい順）。取引時間中の更新（_hourly）が使う
+    top = [[symbol, *("" if pd.isna(v) else v for v in info.loc[symbol, ["code", "name", "sector"]])]
+           for symbol in listed if symbol in info.index]
+    return {"frames": frames, "cross": crosses, "top": top, "prices": _prices(info, daily)}
+
+
+def _hourly(market, data, log, site):
+    """取引時間中の更新。公開中のページのデータ（data）のうち、1時間足だけを取り直して入れ替える。
+
+    取り直すのは、一覧に載せる銘柄（data["top"]）と、watch.json の銘柄（持ち株と注目）だけ。数十秒で済む。
+    1時間足の一覧と抜けの札、今の株価、銘柄ごとのファイルの1時間足を入れ替える。日足・週足・月足はそのまま。
+    """
+    folder = site / STOCK_DIR / market
+    rows = {symbol: {"code": code, "name": name, "sector": sector} for symbol, code, name, sector in data["top"]}
+    for code in json.loads(WATCH.read_text(encoding="utf-8")).get(market, []):
+        symbol = f"{code}.T" if market == "jp" else code
+        file = folder / f"{code}.json"
+        if symbol in rows or not file.exists():  # ファイルが無いのは、株価を取っていない銘柄（コードの間違いなど）
+            continue
+        known = json.loads(file.read_text(encoding="utf-8"))
+        rows[symbol] = {"code": code, "name": known["name"], "sector": known["sector"]}
+    info = pd.DataFrame.from_dict(rows, orient="index").assign(price=np.nan)
+    log(f"{market}: 1時間足を取り直すのは {len(info):,} 銘柄")
+    hourly = prices.fetch_bars(info.index.tolist(), "1h", "3mo", "1時間足", log)
+    data["frames"]["h"], found = _frame("h", market, info, hourly, [row[0] for row in data["top"]])
+    last = hourly["close"].ffill().iloc[-1]
+    for symbol, chart in _charts("h", hourly, set(info.index)).items():
+        code = info.at[symbol, "code"]
+        if symbol in found:
+            data["cross"].setdefault(code, {})["h"] = list(found[symbol])
+        else:
+            data["cross"].get(code, {}).pop("h", None)
+        if not pd.isna(last[symbol]):
+            data["prices"][code] = round(float(last[symbol]), 2)
+        file = folder / f"{code}.json"
+        known = json.loads(file.read_text(encoding="utf-8")) if file.exists() else {
+            "name": info.at[symbol, "name"], "sector": info.at[symbol, "sector"]}
+        _write_stock(folder, code, {**known, "h": chart})
+    return data
 
 
 def _published(log):
@@ -243,7 +301,7 @@ def _published(log):
     try:
         data = json.loads(published.payload())
         return {market: value for market, value in data.items()
-                if set(value.get("frames", {})) == set(FRAMES) and "cross" in value
+                if set(value.get("frames", {})) == set(FRAMES) and "cross" in value and "top" in value
                 and all("signal" in frame for frame in value["frames"].values())}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
@@ -255,14 +313,21 @@ def main():
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
     parser.add_argument("--markets", choices=["both", "jp", "us"], default="both",
                         help="株価を取り直す市場。片方だけのとき、もう片方は公開中のページのデータを使う")
+    parser.add_argument("--hourly", action="store_true",
+                        help="取引時間中の更新。--markets の市場の1時間足だけを、一覧の銘柄と watch.json の銘柄について取り直す")
     args = parser.parse_args()
     out = args.out
 
     # 朝は米国市場、夕方は東証が閉じた後に動かすので、動いていない方の市場は取り直さない
-    keep = _published(print) if args.markets != "both" else {}
+    keep = _published(print) if args.markets != "both" or args.hourly else {}
+    if args.hourly and set(keep) != {"jp", "us"}:
+        # 1時間足だけの更新は、公開中のページのデータが土台。使えないときは何も書かずにやめる（今のページを残す）
+        raise SystemExit("公開中のページのデータが使えないので、1時間足だけの更新はできません")
     data = {}
     for market in ["jp", "us"]:
-        if args.markets in ("both", market) or market not in keep:
+        if args.hourly:
+            data[market] = _hourly(market, keep[market], print, out.parent) if args.markets in ("both", market) else keep[market]
+        elif args.markets in ("both", market) or market not in keep:
             data[market] = _build(market, print, out.parent)
         else:
             print(f"{market}: 公開中のページのデータを使います")
