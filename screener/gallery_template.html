@@ -328,37 +328,64 @@ if (favs.some((f) => f.price == null && priceOf(f.market, f.code) != null)) {
 // ほかの端末への引き継ぎ。注目の中身をリンクの # の後ろに入れる（# の後ろはサーバーに送られない）。
 // 開いた端末では、まだ持っていない銘柄だけを足す（外した銘柄は引き継がない）
 const TRANSFER = "#fav=";
-const encodeFavs = (list) => btoa(unescape(encodeURIComponent(JSON.stringify(list))));
-const decodeFavs = (text) => JSON.parse(decodeURIComponent(escape(atob(text))));
+// リンクは短く、LINE やメールで送っても崩れない文字（英数字と _ ~ - .）だけで作る:
+// 「市場_コード_株価_日付」を ~ でつなぐ（株価と日付は注目だけ）。名前と業種は、開いた側で銘柄ごとのファイルから引く
+const encodeFavs = (list) => list.map((x) =>
+  [x.market, x.code, x.price ?? "", (x.from || "").replace("/", "-")].join("_").replace(/_+$/, "")).join("~");
+function decodeFavs(text) {
+  // 以前のリンク（中身をまるごと詰めた長い形）も読めるようにしておく
+  if (!/^(jp|us)_/.test(text)) return JSON.parse(decodeURIComponent(escape(atob(text))));
+  return decodeURIComponent(text).split("~").map((item) => {
+    const [market, code, price, from] = item.split("_");
+    const day = (from || "").replace("-", "/");
+    return { market, code, ...(Number(price) > 0 ? { price: Number(price) } : {}), ...(day ? { from: day, added: day } : {}) };
+  });
+}
+// LINE などのアプリの中の画面で開くと、取り込んだ銘柄はその画面の中にしか残らない（いつものブラウザとは別々に保存される）
+const IN_APP = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger/i.test(navigator.userAgent);
+const IN_APP_NOTE = IN_APP
+  ? " いまはアプリの中の画面で開いています。ここに取り込んだ銘柄は、いつものブラウザ（Chrome や Safari）には入りません。メニューから「ブラウザで開く」を選んで、開き直してください。"
+  : "";
+const SEND_NOTE = "LINE やメールで送ったときは、アプリの中の画面ではなく、いつものブラウザ（Chrome や Safari）で開いてください。";
 let notice = "";
 if (location.hash.startsWith(TRANSFER)) {
   try {
     const incoming = decodeFavs(location.hash.slice(TRANSFER.length))
       .filter((f) => f && (f.market === "jp" || f.market === "us") && f.code);
-    const added = incoming.filter((f) => !favs.some((x) => x.market === f.market && x.code === f.code));
+    // 株価や日付の無い銘柄は、今日の株価を起点にする
+    const added = incoming.filter((f) => !favs.some((x) => x.market === f.market && x.code === f.code))
+      .map((f) => ({ ...f, code: String(f.code), price: f.price ?? priceOf(f.market, String(f.code)), from: f.from || today(), added: f.added || today() }));
     favs = [...added, ...favs];
     saveFavs();
-    notice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。`;
+    notice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。${IN_APP_NOTE}`;
   } catch {
     notice = "リンクが途中で切れているようで、取り込めませんでした。";
   }
   history.replaceState(null, "", location.pathname + location.search);
   state.market = "fav";
 }
-async function sendFavs() {
-  const url = location.origin + location.pathname + TRANSFER + encodeFavs(favs);
-  const el = document.getElementById("notice");
+// リンクを渡す。スマホでは共有の画面を出す。パソコンではコピーして、リンクそのものも見せる
+// （パソコンの共有の画面からは LINE やメールに送りにくいので、自分で貼り付けてもらう）。
+// 返すのは画面に出す案内。共有の画面を閉じただけなら null
+async function sendLink(title, what, url) {
+  const shown = `${SEND_NOTE} リンク: ${url}`;
   try {
-    if (navigator.share) {
-      await navigator.share({ title: "注目の引き継ぎ", url });
-      return;
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      await navigator.share({ title, url });
+      return `共有しました。もう一方の端末で開くと、${what}が取り込まれます。${SEND_NOTE}`;
     }
     await navigator.clipboard.writeText(url);
-    el.textContent = "リンクをコピーしました。もう一方の端末で開くと、注目が取り込まれます。";
+    return `リンクをコピーしました。LINE やメールに貼り付けて送り、もう一方の端末で開くと、${what}が取り込まれます。${shown}`;
   } catch (e) {
-    if (e && e.name === "AbortError") return;  // 共有画面を閉じただけ
-    el.textContent = `このリンクをもう一方の端末で開いてください: ${url}`;
+    if (e && e.name === "AbortError") return null;
+    return `このリンクをもう一方の端末で開くと、${what}が取り込まれます。${shown}`;
   }
+}
+async function sendFavs() {
+  const message = await sendLink("注目の引き継ぎ", "注目", location.origin + location.pathname + TRANSFER + encodeFavs(favs));
+  if (message == null) return;
+  notice = message;
+  render();
 }
 // 持ち株。ページで登録した銘柄（市場とコードだけ）を、この端末のブラウザに保存する。
 const HOLD_KEY = "holdings-v1";
@@ -397,7 +424,7 @@ if (location.hash.startsWith(HOLD_TRANSFER)) {
     const added = incoming.filter((h) => !hasHold(h.market, h.code));
     holds = [...holds, ...added.map((h) => ({ market: h.market, code: String(h.code) }))];
     saveHolds();
-    holdNotice = `ほかの端末から${added.length}銘柄を取り込みました。`;
+    holdNotice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。${IN_APP_NOTE}`;
   } catch {
     holdNotice = "リンクが途中で切れているようで、取り込めませんでした。";
   }
@@ -424,18 +451,9 @@ function addHolds(text) {
   return !missing.length;
 }
 async function sendHolds() {
-  const url = location.origin + location.pathname + HOLD_TRANSFER + encodeFavs(holds);
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: "持ち株の引き継ぎ", url });
-      return;
-    }
-    await navigator.clipboard.writeText(url);
-    holdNotice = "リンクをコピーしました。もう一方の端末で開くと、持ち株が取り込まれます。";
-  } catch (e) {
-    if (e && e.name === "AbortError") return;  // 共有画面を閉じただけ
-    holdNotice = `このリンクをもう一方の端末で開いてください: ${url}`;
-  }
+  const message = await sendLink("持ち株の引き継ぎ", "持ち株", location.origin + location.pathname + HOLD_TRANSFER + encodeFavs(holds));
+  if (message == null) return;
+  holdNotice = message;
   render();
 }
 // 持ち株と注目のカードのチャート（ローソク足と移動平均）。s は銘柄ごとのファイルの、1つの足の種類ぶん。
