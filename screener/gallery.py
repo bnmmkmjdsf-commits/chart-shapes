@@ -42,20 +42,18 @@ US_SECTORS = {
     "Utilities": "公益事業",
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
-# 載せる銘柄の時価総額の下限（日本株は300億円、米国株は10億ドル）。
-# 一覧が小型株で埋まらないようにする
-MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
-# 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になる
+# 一覧に載せるのは、売買代金（終値 × 出来高）の大きい順に TOP_COUNT 銘柄（日米それぞれ）。全銘柄を見るのをやめ、
+# いつでも売り買いできる、資金の集まっている銘柄だけにする。売買代金は直近 TURNOVER_DAYS 日の中央値で見る。
+# 平均でなく中央値にするのは、決算などで出来高が跳ねた数日だけで入らないようにするため
+TOP_COUNT = 200
+TURNOVER_DAYS = 20
+# 一覧に載せる銘柄の株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になる
 MIN_PRICE = {"jp": 100, "us": 5}
 # 株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
 # 持ち株や注目の銘柄が一覧の下限より小さくてもチャートと抜けの札を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
 # 銘柄ごとのチャートのファイルを置くフォルダ（ページと同じ場所の下。その下に市場ごとのフォルダ）
 STOCK_DIR = "s"
-# 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
-# ふだんほとんど売買の無い銘柄を外す。平均でなく中央値にするのは、出来高が跳ねた数日だけで通らないようにするため
-MIN_TURNOVER = {"jp": 1e8, "us": 5e6}
-TURNOVER_DAYS = 60
 
 
 def _us_info(log):
@@ -126,7 +124,7 @@ BAR_NAME = {"d": "{:%Y/%m/%d}", "w": "{:%Y/%m/%d} の週", "m": "{:%Y/%m}"}
 def _frame(frame, market, info, bars, listed):
     """1つの足の種類（日足・週足・月足）について、抜けた銘柄の一覧と、全銘柄のいちばん新しい抜けを作る。
 
-    bars は株価を取った全銘柄。一覧には、その中の listed（時価総額・株価・売買代金の下限以上）の銘柄だけ載せる。
+    bars は株価を取った全銘柄。一覧には、その中の listed（売買代金の大きい順に並んだ銘柄）だけ載せる。
     返すのは（ページに載せる一覧, {銘柄: (向き, 何本前か)}）。
     """
     _fill_live_close(bars, info["price"])
@@ -138,7 +136,7 @@ def _frame(frame, market, info, bars, listed):
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
               "maS": short, "maM": mid, "maL": long}
     signal = len(shown) + at  # 抜けた足が、チャートの左から何本目か
-    rows = info.loc[info.index.intersection(listed)].sort_values("market_cap", ascending=False)
+    rows = info.loc[[symbol for symbol in listed if symbol in info.index]]
 
     def stock(symbol, row):
         s = {
@@ -151,7 +149,7 @@ def _frame(frame, market, info, bars, listed):
         return s
 
     def side(direction):
-        """直近の足で上抜け（1）・下抜け（-1）した銘柄を、時価総額の大きい順に"""
+        """直近の足で上抜け（1）・下抜け（-1）した銘柄を、売買代金の大きい順に"""
         stocks = [stock(symbol, row) for symbol, row in rows.iterrows() if found.get(symbol) == (direction, 0)]
         return {"count": len(stocks), "stocks": stocks}
 
@@ -210,7 +208,7 @@ def _prices(info, daily):
 def _build(market, log, site):
     """1つの市場の株価を取り直して、ページに載せるデータを作る。銘柄ごとのチャートのファイルは site の下に書き出す"""
     info = INFO[market](log)
-    # 株価は、持ち株タブと抜けの札のために、一覧より広く取る。一覧には、その中の時価総額・株価・売買代金の下限以上の銘柄だけ載せる
+    # 株価は、持ち株と注目のチャートと抜けの札のために、一覧より広く取る。一覧には、その中の売買代金の大きい銘柄だけ載せる
     wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
     log(f"{market}: 株価を取るのは {len(wide):,} 銘柄。日足を取得中...")
     daily = prices.fetch_bars(wide, "1d", "2y", "日足", log)
@@ -218,10 +216,11 @@ def _build(market, log, site):
     weekly = prices.to_weekly(daily)  # 週足は日足から作る（別に取らない）
     log(f"{market}: 月足を取得中...")
     monthly = prices.fetch_bars(wide, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
-    capped = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])]
-    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(capped)
-    listed = turnover.index[turnover >= MIN_TURNOVER[market]]
-    log(f"{market}: 一覧に載せる（時価総額・株価・売買代金の下限以上）のは {len(listed):,} 銘柄")
+    priced = info.index[info["price"] >= MIN_PRICE[market]]
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(priced).dropna()
+    listed = turnover.nlargest(TOP_COUNT).index.tolist()
+    log(f"{market}: 一覧に載せるのは、売買代金の大きい順に {len(listed):,} 銘柄"
+        f"（{TOP_COUNT} 番目の売買代金は1日 {turnover.nlargest(TOP_COUNT).iloc[-1]:,.0f}）")
     frames, crosses = {}, {}
     for frame, bars in [("d", daily), ("w", weekly), ("m", monthly)]:
         frames[frame], found = _frame(frame, market, info, bars, listed)

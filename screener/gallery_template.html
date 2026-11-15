@@ -594,7 +594,7 @@ function render() {
   const [short, mid] = FRAMES[state.frame].ma;
   sub.textContent = `${short}が${mid}を抜けた銘柄（${frame.bar}の${FRAMES[state.frame].name}）`;
   document.getElementById("listtitle").textContent = `${short}が${mid}を${up ? "上" : "下"}に抜けた`;
-  head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
+  head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>売買代金の上位200から・大きい順に${list.length}銘柄を表示`;
   grid.innerHTML = list.length
     ? list.map((s) => card(state.market, s)).join("")
     : `<p class="empty">この足で${up ? "上" : "下"}に抜けた銘柄はありません。</p>`;
