@@ -174,8 +174,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 崩れ: 切り上げていた底値の印（短い横線）と、割った底値の高さの点線 */
 .lowmark { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
 .lowline { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 3 3; }
-/* 持ち株: 終値の折れ線、状態の札、銘柄を足す欄 */
-.closeline { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; }
+/* 持ち株: 長いひげの三角、状態の札、銘柄を足す欄 */
+.wickmark { fill: var(--fg); }
+.badges { flex: none; display: inline-flex; gap: 6px; }
 .badge { flex: none; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.broke { background: var(--fg); border-color: var(--fg); color: var(--bg); }
 .badge.caution { background: var(--star); border-color: var(--star); color: #15213a; }
@@ -331,7 +332,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>直近の足: 日足は大引け後からその日の足、週足は金曜の大引け後からその週の足（月〜木は先週の足）、月足は翌月に入ってから前の月の足。</p>
     <p>TOP 5: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
     <p>過去の成績: 同じ条件を過去の足すべてに当てはめ、条件に合った銘柄の終値が、その何本か後の終値までにどう動いたかを集計したもの（日足・週足は過去2年、月足は過去10年）。「値動き」は中央値（大きい順に並べたときの真ん中の値）。カッコ内は、同じ時期の全銘柄（このページの対象銘柄）の値。いま上場している銘柄だけで計算しているので、実際より少し良く出ます。将来の値動きを約束するものではありません。</p>
-    <p>持ち株: 銘柄コードを入れて「足す」と、その銘柄の週足の終値の折れ線と、いまの状態が出ます（空白で区切れば、まとめて足せます）。登録はこの端末のブラウザに保存され、ほかの人には見えません。山と谷は、終値が直前の山（谷）から7%以上動いたところで数えます。向きは、週の終値が直前の谷を割ったら下げ、直前の山を超えたら上げに切り替わります。「崩れ」は上げから下げに切り替わって4週以内、「下落中」はそれより後。「反転」は下げから上げに切り替わって4週以内、「上昇中」はそれより後。「注意」は上げの途中で、高値が前の高値に届かずに下げているとき。「下げ止まり」は下げの途中で、底値が前の底値より高くなったとき。「横ばい」は、直近26週の終値の幅が15%以内か、その間に向きが3回以上入れ替わっていて、いまの終値がその幅の中にあるとき（向きの合図は当てにならないので、上限と下限を出します。どちらかを抜けたら横ばいではなくなります）。点線は、次に向きが切り替わる株価（横ばいなら上限と下限）です。状態が変わるのは、週の取引が終わったとき（金曜の大引け後）だけです。対象は、日本株が東証の全銘柄、米国株が時価総額3億ドル以上。</p>
+    <p>持ち株: 銘柄コードを入れて「足す」と、その銘柄の週足のローソク足と、いまの状態が出ます（空白で区切れば、まとめて足せます）。登録はこの端末のブラウザに保存され、ほかの人には見えません。山と谷は、終値が直前の山（谷）から7%以上動いたところで数えます。向きは、週の終値が直前の谷を割ったら下げ、直前の山を超えたら上げに切り替わります。「崩れ」は上げから下げに切り替わって4週以内、「下落中」はそれより後。「反転」は下げから上げに切り替わって4週以内、「上昇中」はそれより後。「注意」は上げの途中で、高値が前の高値に届かずに下げているとき。「下げ止まり」は下げの途中で、底値が前の底値より高くなったとき。「横ばい」は、直近26週の終値の幅が15%以内か、その間に向きが3回以上入れ替わっていて、いまの終値がその幅の中にあるとき（向きの合図は当てにならないので、上限と下限を出します。どちらかを抜けたら横ばいではなくなります）。点線は、次に向きが切り替わる株価（横ばいなら上限と下限）です。状態が変わるのは、週の取引が終わったとき（金曜の大引け後）だけです。対象は、日本株が東証の全銘柄、米国株が時価総額3億ドル以上。</p>
+    <p>持ち株のひげ: 長い上ひげ（▼）・長い下ひげ（▲）は、ひげが値幅（高値−安値）の33%以上・株価の2%以上の足。そのうち、高値（下ひげは安値）が直近8週でいちばん高い（安い）足だけに印を付けます。値動きの途中のひげは拾いません。形だけで見ていて、出来高や陽線かどうかは問いません。直近4週のうちに付けていれば、カードに「上ひげ」「下ひげ」の札と、いつ付けたかを出します。上げの途中の長い上ひげは上で売りに押された印、下げの途中の長い下ひげは下で買いが入った印です。山と谷・向きは、ひげではなく終値で決めています。</p>
     <p>崩れ: 終値の折れ線で見て、底値を2回以上続けて切り上げてきた銘柄が、取引が終わった直近の足で、最後の底値を終値で初めて下回ったもの。山と谷は、終値が直前の山（谷）から日足は5%・週足は7%・月足は10%以上動いたところで数え、それより小さい上げ下げは数えません。チャートの短い横線が切り上げていた底値、点線が割った底値の高さ。カードの「底値割れ」は割った底値から、「高値から」は上げの間の一番高い終値から、どれだけ下かです。高値の切り下げ（前の山を超えられない）は見ていません。</p>
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
@@ -523,38 +525,72 @@ function holdNext(market, s, status) {
     ? ` 週の終値が <b>${money(market, s.level)}</b> を割ると崩れ（いまから ${gap}）`
     : ` 週の終値が <b>${money(market, s.level)}</b> を超えると反転（いまから ${gap}）`);
 }
-// 終値の折れ線。山の上・谷の下に短い横線、次に向きが切り替わる株価に点線
-function lineChart(s, signal) {
-  const W = 320, H = 180, P = 14, n = s.c.length;
+// 持ち株のローソク足。山の上・谷の下に短い横線、節目の株価に点線、長いひげを付けた足に三角
+function holdChart(s, signal) {
+  const W = 320, H = 180, P = 16, n = s.c.length;
   // 点線は、横ばいなら上限と下限、そうでなければ次に向きが切り替わる株価
   const levels = s.range || (s.level == null ? [] : [s.level]);
-  const values = s.c.filter((v) => v != null).concat(levels);
+  const values = [...s.h, ...s.l, ...s.c].filter((v) => v != null).concat(levels);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
-  const step = W / n;
+  const step = W / n, body = Math.max(1, step * 0.62);
   const x = (i) => (i + 0.5) * step;
   const y = (v) => P + ((max - v) / span) * (H - 2 * P);
   const f = (v) => v.toFixed(1);
-  const pts = s.c.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
-  const marks = s.pivots.map(([i, v, high]) => {
-    const at = y(v) + (high ? -7 : 7);
-    return `<line class="lowmark" x1="${f(x(i) - 7)}" x2="${f(x(i) + 7)}" y1="${f(at)}" y2="${f(at)}"></line>`;
+  const candles = s.c.map((c, i) => {
+    const o = s.o[i], h = s.h[i], l = s.l[i];
+    if ([o, h, l, c].some((v) => v == null)) return "";
+    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
+    return `<g class="${c >= o ? "up" : "down"}">
+      <line x1="${f(x(i))}" x2="${f(x(i))}" y1="${f(y(h))}" y2="${f(y(l))}"></line>
+      <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
+    </g>`;
   }).join("");
+  // 山と谷の印は、ひげの外側に置く（終値で決めているが、足に重ならないように）
+  const edge = (i, high) => (high ? y(s.h[i] ?? s.c[i]) : y(s.l[i] ?? s.c[i]));
+  const marks = s.pivots.map(([i, , high]) => {
+    const at = edge(i, high) + (high ? -4 : 4);
+    return `<line class="lowmark" x1="${f(x(i) - 6)}" x2="${f(x(i) + 6)}" y1="${f(at)}" y2="${f(at)}"></line>`;
+  }).join("");
+  const isPivot = (i, high) => s.pivots.some((p) => p[0] === i && Boolean(p[2]) === high);
+  const tri = (i, high) => {
+    const tip = edge(i, high) + (high ? -1 : 1) * (isPivot(i, high) ? 7 : 3), far = tip + (high ? -6 : 6);
+    return `<polygon class="wickmark" points="${f(x(i))},${f(tip)} ${f(x(i) - 3.5)},${f(far)} ${f(x(i) + 3.5)},${f(far)}"></polygon>`;
+  };
+  const wicks = (s.upper || []).map((i) => tri(i, true)).join("") + (s.lower || []).map((i) => tri(i, false)).join("");
   const level = levels.map((v) => `<line class="lowline" x1="0" x2="${W}" y1="${f(y(v))}" y2="${f(y(v))}"></line>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足の終値の折れ線">
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足のローソク足チャート">
     <rect class="band" x="${f(signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>
-    ${level}<polyline class="closeline" points="${pts}"></polyline>${marks}
+    ${level}${candles}${marks}${wicks}
   </svg>`;
+}
+// 直近 WICK_BARS 週のうち、いちばん新しい長いひげ。{ upper: 上ひげか, ago: 何週前か }。無ければ null
+const WICK_BARS = 4;
+function recentWick(s, signal) {
+  const found = [...(s.upper || []).map((i) => ({ upper: true, ago: signal - i })),
+    ...(s.lower || []).map((i) => ({ upper: false, ago: signal - i }))]
+    .filter((w) => w.ago >= 0 && w.ago < WICK_BARS).sort((a, b) => a.ago - b.ago);
+  if (!found.length) return null;
+  // 同じ週に上ひげも下ひげも長いときは、どちらとも言えないので両方と書く
+  const both = found.filter((w) => w.ago === found[0].ago).length > 1;
+  return { ...found[0], both };
+}
+function wickNote(w) {
+  const when = w.ago === 0 ? "直近の週" : `${w.ago}週前`;
+  return w.both ? `${when}に、上ひげも下ひげも長い足（売りと買いが押し合った印）`
+    : w.upper ? `${when}に長い上ひげ（上で売りに押された印）` : `${when}に長い下ひげ（下で買いが入った印）`;
 }
 function holdCard(h) {
   const data = holdData(h.market), s = data.stocks[h.code];
   const status = holdStatus(s);
   const now = priceOf(h.market, h.code);
+  const wick = s ? recentWick(s, data.signal) : null;
+  const wickBadge = wick ? `<span class="badge">${wick.both ? "上下ひげ" : wick.upper ? "上ひげ" : "下ひげ"}</span>` : "";
   return `<div class="card">
     <a href="${esc(detailUrl(h.market, h.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="nm"><span class="name" title="${esc(s ? s.name : h.code)}">${esc(s ? s.name : h.code)}</span></span>${s ? `<span class="badge ${status.key}">${status.label}</span>` : ""}</div>
+      <div class="top"><span class="nm"><span class="name" title="${esc(s ? s.name : h.code)}">${esc(s ? s.name : h.code)}</span></span>${s ? `<span class="badges">${wickBadge}<span class="badge ${status.key}">${status.label}</span></span>` : ""}</div>
       <div class="meta"><span class="id">${esc(h.code)}${now != null ? `<span class="price">${money(h.market, now)}</span>` : ""}${s && s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
-      ${s ? `<div class="next">${holdNext(h.market, s, status)}</div>${lineChart(s, data.signal)}` : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
+      ${s ? `<div class="next">${holdNext(h.market, s, status)}${wick ? `<br>ひげ: ${wickNote(wick)}` : ""}</div>${holdChart(s, data.signal)}` : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
     </a>
     <button type="button" class="star drop" data-hold-market="${h.market}" data-code="${esc(h.code)}" aria-label="持ち株から外す">×</button>
   </div>`;
@@ -874,7 +910,7 @@ function render() {
   const lines = isFavTab ? ["短期線", "中期線", "長期線"] : FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML = isHold
     ? `<span><i class="klow"></i>山と谷</span><span><i class="klow" style="border-top-style:dashed;border-top-width:1px"></i>節目の株価</span>`
-      + `<span><i class="kband"></i>状態を決めた週</span>`
+      + `<span>▼ 長い上ひげ</span><span>▲ 長い下ひげ</span><span><i class="kband"></i>状態を決めた週</span>`
     : `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
     + (isBreak ? `<span><i class="kband"></i>底値を割った足</span><span><i class="klow"></i>切り上げていた底値</span>`
       : `<span><i class="kband"></i>${isFavTab ? "条件に合った足" : "下ひげを付けた足"}</span>`);
