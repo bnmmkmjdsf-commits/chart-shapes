@@ -451,6 +451,11 @@ if (location.hash.startsWith(HOLD_TRANSFER)) {
   }
   history.replaceState(null, "", location.pathname + location.search);
 }
+// ページをもう開いているタブに引き継ぎのリンクを貼り付けて開くと、# の後ろが変わるだけで読み込み直しにならず、
+// 上の取り込みが動かない。読み込み直して取り込む
+window.addEventListener("hashchange", () => {
+  if (location.hash.startsWith(TRANSFER) || location.hash.startsWith(HOLD_TRANSFER)) location.reload();
+});
 // 持ち株があれば、初めに持ち株タブを開く
 if (holds.length && state.market === "jp") state.market = "hold";
 // コード（空白や読点で区切って複数可）を足す。全角は半角に、小文字は大文字にそろえ、日本株 → 米国株の順に探す
