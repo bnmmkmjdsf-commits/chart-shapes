@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import cross, jpx, prices, published
+from . import cross, jpx, prices, published, watch
 
 # チャートに描く足の本数
 CHART_BARS = 52
@@ -28,9 +28,6 @@ FRAMES = {
     "m": {"label": "月足", "ma": (12, 24, 60)},
 }
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
-# 取引時間中にも1時間足を更新する銘柄（持ち株と注目）のコード。{"jp": [...], "us": [...]}。
-# 持ち株と注目はブラウザの中にしか無く、ページを作る側からは見えないので、ここに書いて教える
-WATCH = Path(__file__).resolve().parent.parent / "watch.json"
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 # 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
 US_SECTORS = {
@@ -264,12 +261,13 @@ def _build(market, log, site):
 def _hourly(market, data, log, site):
     """取引時間中の更新。公開中のページのデータ（data）のうち、1時間足だけを取り直して入れ替える。
 
-    取り直すのは、一覧に載せる銘柄（data["top"]）と、watch.json の銘柄（持ち株と注目）だけ。数十秒で済む。
+    取り直すのは、一覧に載せる銘柄（data["top"]）と、持ち株と注目の銘柄（watch.json）だけ。数十秒で済む。
     1時間足の一覧と抜けの札、今の株価、銘柄ごとのファイルの1時間足を入れ替える。日足・週足・月足はそのまま。
     """
     folder = site / STOCK_DIR / market
     rows = {symbol: {"code": code, "name": name, "sector": sector} for symbol, code, name, sector in data["top"]}
-    for code in json.loads(WATCH.read_text(encoding="utf-8")).get(market, []):
+    listed = watch.shared(market)
+    for code in [*listed["hold"], *(fav["code"] for fav in listed["fav"])]:
         symbol = f"{code}.T" if market == "jp" else code
         file = folder / f"{code}.json"
         if symbol in rows or not file.exists():  # ファイルが無いのは、株価を取っていない銘柄（コードの間違いなど）
@@ -332,6 +330,8 @@ def main():
         else:
             print(f"{market}: 公開中のページのデータを使います")
             data[market] = keep[market]
+    for market in data:
+        data[market]["shared"] = watch.shared(market)  # 持ち株と注目は、株価を取り直さない市場のぶんも、いつも今のファイルから入れる
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)

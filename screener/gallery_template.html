@@ -263,9 +263,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="stack" id="hold" hidden>
     <form class="transfer" id="holdform">
       <div class="holdadd">
-        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="銘柄コード（例: 7203 AAPL）">
+        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="この端末だけに足す（例: 7203 AAPL）">
         <button type="submit">足す</button>
-        <button type="button" id="sendhold">ほかの端末に送る</button>
+        <button type="button" id="sendhold">この一覧をコピー</button>
       </div>
       <p id="holdnotice" aria-live="polite"></p>
     </form>
@@ -275,7 +275,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <h2 class="sechead" id="listtitle"></h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
-    <button type="button" id="send">ほかの端末に送る</button>
+    <button type="button" id="send">この一覧をコピー</button>
     <p id="notice" aria-live="polite"></p>
   </div>
   </div>
@@ -335,9 +335,21 @@ function freshCrosses(market, code) {
 }
 const crossBadges = (market, code) => freshCrosses(market, code).map((c) =>
   `<span class="badge ${c.up ? "cu" : "cd"}">${FRAMES[c.frame].name} ${c.up ? "上抜け" : "下抜け"}${c.ago ? `（${c.ago}${FRAMES[c.frame].ago}）` : ""}</span>`).join("");
+// 持ち株と注目は、どの端末でも同じになるよう、ページが持っている共通の一覧（DATA[市場].shared。元は watch.json）から出す。
+// この端末で☆を付けた・足した銘柄は、共通の一覧に入るまでの間、この端末だけに出す（ブラウザに保存する）
+const SHARED = { fav: [], hold: [] };
+for (const market of ["jp", "us"]) {
+  const lists = DATA[market].shared || { hold: [], fav: [] };
+  SHARED.hold.push(...lists.hold.map((code) => ({ market, code, shared: true })));
+  SHARED.fav.push(...lists.fav.map((f) => ({ market, ...f, added: f.from, shared: true })));
+}
+const isShared = (kind, market, code) => SHARED[kind].some((x) => x.market === market && x.code === code);
+const COMMON_NOTE = "は、どの端末にも出る共通の一覧の銘柄です。外すときは Claude に伝えてください。";
 let favs = (() => {
   try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; }
 })();
+// この端末だけの注目（新しく付けた順）の後ろに、共通の注目を並べる
+const allFavs = () => [...favs.filter((f) => !isShared("fav", f.market, f.code)), ...SHARED.fav];
 const saveFavs = () => { try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {} };
 // 株価を持たない古い注目は、今日の株価を起点にする
 if (favs.some((f) => f.price == null && priceOf(f.market, f.code) != null)) {
@@ -367,7 +379,6 @@ const IN_APP = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger/i.test(navigator.use
 const IN_APP_NOTE = IN_APP
   ? " いまはアプリの中の画面で開いています。ここに取り込んだ銘柄は、いつものブラウザ（Chrome や Safari）には入りません。メニューから「ブラウザで開く」を選んで、開き直してください。"
   : "";
-const SEND_NOTE = "LINE やメールで送ったときは、アプリの中の画面ではなく、いつものブラウザ（Chrome や Safari）で開いてください。";
 let notice = "";
 if (location.hash.startsWith(TRANSFER)) {
   try {
@@ -385,25 +396,19 @@ if (location.hash.startsWith(TRANSFER)) {
   history.replaceState(null, "", location.pathname + location.search);
   state.market = "fav";
 }
-// リンクを渡す。スマホでは共有の画面を出す。パソコンではコピーして、リンクそのものも見せる
-// （パソコンの共有の画面からは LINE やメールに送りにくいので、自分で貼り付けてもらう）。
-// 返すのは画面に出す案内。共有の画面を閉じただけなら null
+// いまの一覧をリンクにしてコピーする。Claude に貼り付けて送ると、共通の一覧（watch.json）に入り、どの端末にも出るようになる。
+// リンクをほかの端末で開けば、その端末だけに取り込むこともできる。返すのは画面に出す案内
 async function sendLink(title, what, url) {
-  const shown = `${SEND_NOTE} リンク: ${url}`;
+  const shown = `Claude に貼り付けて送ると、どの端末にも出る共通の${what}になります。リンク: ${url}`;
   try {
-    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
-      await navigator.share({ title, url });
-      return `共有しました。もう一方の端末で開くと、${what}が取り込まれます。${SEND_NOTE}`;
-    }
     await navigator.clipboard.writeText(url);
-    return `リンクをコピーしました。LINE やメールに貼り付けて送り、もう一方の端末で開くと、${what}が取り込まれます。${shown}`;
-  } catch (e) {
-    if (e && e.name === "AbortError") return null;
-    return `このリンクをもう一方の端末で開くと、${what}が取り込まれます。${shown}`;
+    return `コピーしました。${shown}`;
+  } catch {
+    return `コピーできませんでした。下のリンクを選んでコピーしてください。${shown}`;
   }
 }
 async function sendFavs() {
-  const message = await sendLink("注目の引き継ぎ", "注目", location.origin + location.pathname + TRANSFER + encodeFavs(favs));
+  const message = await sendLink("注目の引き継ぎ", "注目", location.origin + location.pathname + TRANSFER + encodeFavs(allFavs()));
   if (message == null) return;
   notice = message;
   render();
@@ -437,7 +442,9 @@ let holds = (() => {
 })();
 const saveHolds = () => { try { localStorage.setItem(HOLD_KEY, JSON.stringify(holds)); } catch {} };
 let holdNotice = "";
-const hasHold = (market, code) => holds.some((h) => h.market === market && h.code === code);
+// 共通の持ち株の後ろに、この端末だけの持ち株を並べる
+const allHolds = () => [...SHARED.hold, ...holds.filter((h) => !isShared("hold", h.market, h.code))];
+const hasHold = (market, code) => allHolds().some((h) => h.market === market && h.code === code);
 if (location.hash.startsWith(HOLD_TRANSFER)) {
   try {
     const incoming = decodeFavs(location.hash.slice(HOLD_TRANSFER.length))
@@ -457,7 +464,7 @@ window.addEventListener("hashchange", () => {
   if (location.hash.startsWith(TRANSFER) || location.hash.startsWith(HOLD_TRANSFER)) location.reload();
 });
 // 持ち株があれば、初めに持ち株タブを開く
-if (holds.length && state.market === "jp") state.market = "hold";
+if (allHolds().length && state.market === "jp") state.market = "hold";
 // コード（空白や読点で区切って複数可）を足す。全角は半角に、小文字は大文字にそろえ、日本株 → 米国株の順に探す
 function addHolds(text) {
   const codes = text.normalize("NFKC").toUpperCase().split(/[\s,、]+/).filter(Boolean);
@@ -477,7 +484,7 @@ function addHolds(text) {
   return !missing.length;
 }
 async function sendHolds() {
-  const message = await sendLink("持ち株の引き継ぎ", "持ち株", location.origin + location.pathname + HOLD_TRANSFER + encodeFavs(holds));
+  const message = await sendLink("持ち株の引き継ぎ", "持ち株", location.origin + location.pathname + HOLD_TRANSFER + encodeFavs(allHolds()));
   if (message == null) return;
   holdNotice = message;
   render();
@@ -499,6 +506,7 @@ function stockChart(s, sizes) {
 }
 // 持ち株のカードは、抜けたばかりの銘柄を先に並べる（その中では足した順）
 function renderHold() {
+  const holds = allHolds();
   const rows = holds.map((h) => ({ h, crossed: freshCrosses(h.market, h.code).length > 0 }))
     .sort((a, b) => b.crossed - a.crossed);
   const crossed = rows.filter((r) => r.crossed).length;
@@ -512,13 +520,20 @@ function renderHold() {
   document.getElementById("holdnotice").textContent = holdNotice;
 }
 
-const favOf = (market, code) => favs.find((f) => f.market === market && f.code === code);
+const favOf = (market, code) => allFavs().find((f) => f.market === market && f.code === code);
 function toggleFav(market, code) {
+  if (isShared("fav", market, code)) {
+    notice = `${code} ${COMMON_NOTE}`;
+    render();
+    return;
+  }
+  notice = "";
   if (favOf(market, code)) {
     favs = favs.filter((f) => !(f.market === market && f.code === code));
   } else {
     const s = findStock(market, code);
     favs.unshift({ market, code, name: s.name, sector: s.sector || "", added: today(), from: today(), price: priceOf(market, code) });
+    notice = `${code} に☆を付けました。この端末だけに出ます。ほかの端末にも出すには、★ 注目タブの「この一覧をコピー」を押して、Claude に貼り付けて送ってください。`;
   }
   saveFavs();
   render();
@@ -594,6 +609,7 @@ function ownCard(market, code, opts = {}, known = {}) {
 
 function render() {
   document.querySelectorAll("[data-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
+  const favs = allFavs(), holds = allHolds();
   document.getElementById("tab-fav").textContent = favs.length ? `★ 注目 ${favs.length}` : "★ 注目";
   document.getElementById("tab-hold").textContent = holds.length ? `持ち株 ${holds.length}` : "持ち株";
   const sub = document.getElementById("sub");
@@ -655,6 +671,11 @@ document.querySelector("main").addEventListener("click", (e) => {
   const b = e.target.closest(".star:not(.drop)");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
   const drop = e.target.closest(".drop");
+  if (drop && isShared("hold", drop.dataset.holdMarket, drop.dataset.code)) {
+    holdNotice = `${drop.dataset.code} ${COMMON_NOTE}`;
+    render();
+    return;
+  }
   if (drop) {
     holds = holds.filter((h) => !(h.market === drop.dataset.holdMarket && h.code === drop.dataset.code));
     saveHolds();
