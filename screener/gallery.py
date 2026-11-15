@@ -84,6 +84,11 @@ def _round(value):
     return None if pd.isna(value) else float(f"{value:.4g}")
 
 
+def _permille(ratio):
+    """比（0.012 なら 12）を千分率の整数にする。値が無い足は None"""
+    return [None if np.isnan(v) else int(round(v * 1000)) for v in ratio]
+
+
 def _fill_live_close(bars, price):
     """途中の足（今日・今週・今月）の終値が空なら、今の株価で埋める。
 
@@ -154,7 +159,7 @@ def _frame(frame, market, info, bars, listed):
 
 
 def _holdings(market, info, bars):
-    """持ち株タブ用に、株価を取った全銘柄の週足の終値と、いまの状態（breakdown.state）を作る。
+    """持ち株と注目のカード用に、株価を取った全銘柄の週足のローソク足と、いまの状態（breakdown.state）を作る。
 
     ページで登録した銘柄だけを出すが、どの銘柄が登録されるかはページを作る側では分からないので、全銘柄ぶん持たせる。
     """
@@ -168,12 +173,20 @@ def _holdings(market, info, bars):
         values = close[symbol].to_numpy(dtype=float)
         if np.isnan(values[first:]).all():
             continue
+        o, h, low = (bars[key][symbol].to_numpy(dtype=float)[first:] for key in ["open", "high", "low"])
+        c = values[first:]
         state = breakdown.state(values[:done], HOLD_SWING)
         row = info.loc[symbol]
         stocks[row["code"]] = {
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
             "c": [_round(v) for v in values[first:]],
+            # p はチャートより前の終値（移動平均を描くのに使う）。o・h・l は終値からのずれを千分率で持つ（ページを軽くするため）:
+            # 始値は終値から、高値は始値と終値の高い方から上へ、安値は低い方から下へ
+            "p": [_round(v) for v in values[max(0, first - max(FRAMES["w"]["ma"])):first]],
+            "o": _permille(o / c - 1),
+            "h": _permille(h / np.maximum(o, c) - 1),
+            "l": _permille(1 - low / np.minimum(o, c)),
             "trend": state["trend"],
             "ago": None if state["since"] is None else done - 1 - state["since"],  # いまの向きになって何本たったか
             "flipped": state["flipped"],
