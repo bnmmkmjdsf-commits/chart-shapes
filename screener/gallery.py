@@ -14,17 +14,18 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import jpx, prices, published, pullback
+from . import breakdown, jpx, prices, published, pullback
 
 # チャートに描く足の本数
 CHART_BARS = 52
 # 足の種類ごとの設定。ma はチャートに描く移動平均の本数（短期・中期・長期）、
 # volume_window は出来高を比べる「その前の平均」の本数、
-# after は過去の成績で「何本後の終値と比べるか」、span は過去の成績に使う期間（取ってくる株価の長さ）
+# after は過去の成績で「何本後の終値と比べるか」、span は過去の成績に使う期間（取ってくる株価の長さ）、
+# swing は「崩れ」で山・谷に数える上げ下げの大きさ（これより小さい上げ下げは数えない）
 FRAMES = {
-    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25, "after": (5, 20), "span": "2年"},
-    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13, "after": (4, 13), "span": "2年"},
-    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12, "after": (3,), "span": "10年"},
+    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25, "after": (5, 20), "span": "2年", "swing": 0.05},
+    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13, "after": (4, 13), "span": "2年", "swing": 0.07},
+    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12, "after": (3,), "span": "10年", "swing": 0.10},
 }
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
@@ -132,28 +133,47 @@ def _frame(frame, market, info, bars, min_market_cap):
               "maS": short, "maM": mid, "maL": long}
     signal = len(shown) + at  # 下ひげを付けた足が、チャートの左から何本目か
 
-    def stock(symbol, row):
+    def percent(value):
+        return round(value * 100, 1)
+
+    def stock(symbol, row, extra):
         s = {
             "code": row["code"],
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
             "signal": signal,
-            "wick": round(row["wick"] * 100, 1),
-            "volumeRatio": round(row["volume_ratio"], 1),
+            **extra(row),
         }
         s.update({key: [_round(v) for v in table[symbol].loc[shown]] for key, table in series.items()})
         return s
 
-    def percent(value):
-        return round(value * 100, 1)
+    def wick(row):
+        return {"wick": percent(row["wick"]), "volumeRatio": round(row["volume_ratio"], 1)}
 
-    past = [{"after": r["after"], "count": r["count"], "win": percent(r["win"]), "median": percent(r["median"]),
-             "baseWin": percent(r["base_win"]), "baseMedian": percent(r["base_median"])}
-            for r in pullback.past_results(bars, at, spec["volume_window"], spec["after"])]
+    def past(results):
+        return [{"after": r["after"], "count": r["count"], "win": percent(r["win"]), "median": percent(r["median"]),
+                 "baseWin": percent(r["base_win"]), "baseMedian": percent(r["base_median"])} for r in results]
 
-    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits), "span": spec["span"], "past": past,
-            "stocks": [stock(symbol, row) for symbol, row in hits.iterrows()],
-            "top": [stock(symbol, row) for symbol, row in tops.iterrows()]}
+    # 崩れ: 底値を切り上げてきたのに、この足で前の底値を割った銘柄
+    close = bars["close"]
+    broke, events = breakdown.scan(close, spec["swing"], CHART_BARS - 1)  # at が -2 でも底値がチャートに収まる
+    breaks = breakdown.find(close, events, at).join(info, how="inner")
+    breaks = breaks[breaks["market_cap"] >= min_market_cap].sort_values("market_cap", ascending=False)
+    first = len(close) - len(shown)  # チャートの左端の足が、全体の何本目か
+
+    def broken(row):
+        # lows は切り上げていた底値の [チャートの左から何本目か, 終値]
+        return {"under": percent(row["under"]), "drop": percent(row["drop"]),
+                "lows": [[i - first, _round(value)] for i, value in row["lows"]]}
+
+    done = len(close) + at + 1
+    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits), "span": spec["span"],
+            "past": past(pullback.past_results(bars, at, spec["volume_window"], spec["after"])),
+            "stocks": [stock(symbol, row, wick) for symbol, row in hits.iterrows()],
+            "top": [stock(symbol, row, wick) for symbol, row in tops.iterrows()],
+            "breaks": {"count": len(breaks),
+                       "past": past(pullback.results_after(close.iloc[:done], broke.iloc[:done], spec["after"])),
+                       "stocks": [stock(symbol, row, broken) for symbol, row in breaks.iterrows()]}}
 
 
 def _prices(info, daily):
@@ -189,7 +209,8 @@ def _published(log):
     """公開中のページのデータ。取れない・形が古いときは空（その市場は取り直すことになる）"""
     try:
         data = json.loads(published.payload())
-        return {market: value for market, value in data.items() if set(value.get("frames", {})) == set(FRAMES)}
+        return {market: value for market, value in data.items()
+                if set(value.get("frames", {})) == set(FRAMES) and all("breaks" in f for f in value["frames"].values())}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
         return {}
@@ -218,10 +239,12 @@ def main():
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
         for frame, result in data[market]["frames"].items():
-            print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: {result['count']} 銘柄")
-            for r in result.get("past", []):
-                print(f"    過去 {r['after']}本後: {r['count']:,}回 上昇 {r['win']}%（全銘柄 {r['baseWin']}%）"
-                      f" 中央値 {r['median']:+}%（全銘柄 {r['baseMedian']:+}%）")
+            print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: "
+                  f"下ひげ {result['count']} 銘柄、崩れ {result['breaks']['count']} 銘柄")
+            for kind, past in [("下ひげ", result.get("past", [])), ("崩れ", result["breaks"]["past"])]:
+                for r in past:
+                    print(f"    {kind} 過去 {r['after']}本後: {r['count']:,}回 上昇 {r['win']}%（全銘柄 {r['baseWin']}%）"
+                          f" 中央値 {r['median']:+}%（全銘柄 {r['baseMedian']:+}%）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

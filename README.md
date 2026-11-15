@@ -1,6 +1,6 @@
 # PEREGRAPH
 
-日足・週足・月足で「長い下ひげを付けて、出来高が増えた」銘柄を、日本株・米国株それぞれチャートで並べたページ。
+日足・週足・月足で「長い下ひげを付けて、出来高が増えた」銘柄と、「底値を切り上げてきたのに、前の底値を割った」銘柄（崩れ）を、日本株・米国株それぞれチャートで並べたページ。
 無料のデータ（Yahoo Finance と JPX）だけで作り、GitHub Actions が平日に更新して GitHub Pages で公開している。
 
 https://bnmmkmjdsf-commits.github.io/chart-shapes/
@@ -17,6 +17,17 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 - 1日の売買代金（直近60日の中央値）が日本株は1億円以上、米国株は500万ドル以上（ほとんど売買の無い銘柄を外すため）
 
 しきい値は `screener/pullback.py` と `screener/gallery.py` の先頭にある。
+
+## 崩れ
+
+「崩れ」に切り替えると、底値を切り上げながら上がってきたのに、取引が終わった直近の足で前の底値を割った銘柄が並ぶ（持ち株の売り時や、避ける銘柄の確認用）。
+
+- 終値の折れ線で見る。山と谷は、終値が直前の山（谷）から日足は5%・週足は7%・月足は10%以上動いたところで数える
+- 谷が2回以上続けて切り上がっていて、その谷がすべてチャートの中（直近52本）にある
+- 終値が、最後の谷を初めて下回った足
+- 対象の銘柄（時価総額・株価・売買代金の下限）は下ひげと同じ。過去の成績も同じ方法で出す
+
+高値の切り下げ（前の山を超えられない）は見ていない。判定は `screener/breakdown.py`、山・谷に数える大きさは `screener/gallery.py` の `FRAMES` の `swing`。
 
 ## 二択
 
@@ -51,7 +62,8 @@ Windows のパス長制限を避けるため、仮想環境はプロジェクト
 |---|---|
 | `screener/prices.py` | Yahoo のスクリーナー API から株価・時価総額（米国・日本）、yfinance でローソク足（日足・月足）。週足は日足から作る |
 | `screener/jpx.py` | JPX の東証上場銘柄一覧から、日本語の銘柄名・33業種 |
-| `screener/pullback.py` | 「下ひげ × 出来高増」の判定 |
+| `screener/pullback.py` | 「下ひげ × 出来高増」の判定と、過去の成績の集計 |
+| `screener/breakdown.py` | 「底値の切り上げ → 崩れ」の判定 |
 | `screener/gallery.py`, `screener/gallery_template.html` | ページの書き出しと、ページの見た目 |
 | `screener/published.py`, `screener/retemplate.py` | 公開中のページのデータを取り出す・それを使ってページだけ作り直す |
 

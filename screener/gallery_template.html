@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場の切り替えと、その右に足（日足・週足・月足）の切り替え（狭い画面では下の段に回る）→ 線の凡例
+/* レイアウト: 見出し → 市場の切り替えと、その右に足（日足・週足・月足）と形（下ひげ・崩れ）の切り替え（狭い画面では下の段に回る）→ 線の凡例
    → チャートのカード（スマホは1列、広い画面は3列まで）→ 過去の成績
    二択タブでは、カードの代わりに2銘柄を並べ（スマホは縦、広い画面は横）、その下に選び方の傾向を出す */
 :root {
@@ -112,6 +112,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legend .k26 { border-color: var(--ma26); }
 .legend .k52 { border-color: var(--ma52); }
 .legend .kband { width: 10px; height: 12px; border: 0; background: var(--band); }
+.legend .klow { border-color: var(--fg); }
 .past { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 12px; font-size: 0.8125rem; }
 .past h2 { margin: 0 0 6px; font-size: 0.8125rem; font-weight: 600; }
 .past h2 span { margin-left: 8px; font-weight: 400; color: var(--muted); font-size: 0.75rem; }
@@ -170,6 +171,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .price { margin-left: 8px; color: var(--fg); }
 .card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
 .band { fill: var(--band); stroke: none; }
+/* 崩れ: 切り上げていた底値の印（短い横線）と、割った底値の高さの点線 */
+.lowmark { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
+.lowline { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 3 3; }
 .up line, .up rect { stroke: var(--up); fill: var(--up); }
 .down line, .down rect { stroke: var(--down); fill: var(--down); }
 .up line, .down line { stroke-width: 1; }
@@ -250,6 +254,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
     <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
   </div>
+
+  <div class="market" id="kinds" role="tablist" aria-label="形">
+    <button type="button" role="tab" data-kind="wick" aria-selected="true">下ひげ</button>
+    <button type="button" role="tab" data-kind="break" aria-selected="false">崩れ</button>
+  </div>
   </div>
 
   <div class="legend" id="legend" aria-label="チャートの見方"></div>
@@ -293,6 +302,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>直近の足: 日足は大引け後からその日の足、週足は金曜の大引け後からその週の足（月〜木は先週の足）、月足は翌月に入ってから前の月の足。</p>
     <p>TOP 5: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
     <p>過去の成績: 同じ条件を過去の足すべてに当てはめ、条件に合った銘柄の終値が、その何本か後の終値までにどう動いたかを集計したもの（日足・週足は過去2年、月足は過去10年）。「値動き」は中央値（大きい順に並べたときの真ん中の値）。カッコ内は、同じ時期の全銘柄（このページの対象銘柄）の値。いま上場している銘柄だけで計算しているので、実際より少し良く出ます。将来の値動きを約束するものではありません。</p>
+    <p>崩れ: 終値の折れ線で見て、底値を2回以上続けて切り上げてきた銘柄が、取引が終わった直近の足で、最後の底値を終値で初めて下回ったもの。山と谷は、終値が直前の山（谷）から日足は5%・週足は7%・月足は10%以上動いたところで数え、それより小さい上げ下げは数えません。チャートの短い横線が切り上げていた底値、点線が割った底値の高さ。カードの「底値割れ」は割った底値から、「高値から」は上げの間の一番高い終値から、どれだけ下かです。高値の切り下げ（前の山を超えられない）は見ていません。</p>
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
     <p>二択: 条件に合った銘柄から、同じ市場の2つを並べます。理由は考えず、良いと思う方を押してください。10回たまると、選んだ方に共通する特徴（下ひげが長い方を選びがち、など）を下に出します。記録はこの端末のブラウザに保存されます。「記録をコピー」で、選んだ結果をまとめて取り出せます。</p>
@@ -304,7 +314,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <script>
 const DATA = __DATA__;
 const STEP = 20;
-const state = { market: "jp", frame: "w", shown: STEP, pair: null };  // pair は二択でいま並べている2銘柄
+// kind は並べる形（wick が下ひげ × 出来高増、break が崩れ）。pair は二択でいま並べている2銘柄
+const state = { market: "jp", frame: "w", kind: "wick", shown: STEP, pair: null };
+// 崩れた銘柄。古いデータ（崩れを持たない）でも動くようにする
+const breaksOf = (market, frame) => DATA[market].frames[frame].breaks || { count: 0, past: [], stocks: [] };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
   d: { name: "日足", ma: ["5日線", "25日線", "75日線"], after: "日後" },
@@ -331,7 +344,8 @@ const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // 条件に合っている銘柄を探す。いま選んでいる足を先に、無ければほかの足から探し、見つけた足の種類（frame）を付けて返す
 function findStock(market, code) {
   for (const frame of [state.frame, "w", "d", "m"]) {
-    const s = DATA[market].frames[frame].stocks.find((x) => x.code === code);
+    const s = DATA[market].frames[frame].stocks.find((x) => x.code === code)
+      || breaksOf(market, frame).stocks.find((x) => x.code === code);
     if (s) return { ...s, frame };
   }
   return null;
@@ -617,8 +631,15 @@ function chart(s) {
       <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
     </g>`;
   }).join("");
+  // 崩れ: 切り上げていた底値の下に短い横線、最後の底値から割った足まで点線
+  let lows = "";
+  if (s.lows) {
+    const [li, lv] = s.lows[s.lows.length - 1];
+    lows = `<line class="lowline" x1="${f(x(li))}" x2="${f(x(s.signal))}" y1="${f(y(lv))}" y2="${f(y(lv))}"></line>`
+      + s.lows.map(([i, v]) => `<line class="lowmark" x1="${f(x(i) - 7)}" x2="${f(x(i) + 7)}" y1="${f(y(v) + 7)}" y2="${f(y(v) + 7)}"></line>`).join("");
+  }
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ローソク足チャート">
-    ${band}${line(s.maL, "ma52")}${line(s.maM, "ma26")}${line(s.maS, "ma13")}${candles}
+    ${band}${line(s.maL, "ma52")}${line(s.maM, "ma26")}${line(s.maS, "ma13")}${candles}${lows}
   </svg>`;
 }
 
@@ -627,9 +648,11 @@ function chart(s) {
 function card(market, s, opts = {}) {
   const fav = favOf(market, s.code);
   const live = Boolean(s.c);
-  const right = live ? `下ひげ ${s.wick}%` : "";
+  const right = !live ? "" : s.lows ? `底値割れ ${pct(s.under)}` : `下ひげ ${s.wick}%`;
   // 保留タブでは、どの足で条件に合っているかも出す
-  const metaRight = live ? `${s.frame ? FRAMES[s.frame].name + " " : ""}出来高 ${s.volumeRatio}倍` : market === "jp" ? "日本株" : "米国株";
+  const metaRight = live
+    ? (s.frame ? FRAMES[s.frame].name + " " : "") + (s.lows ? `高値から ${pct(s.drop)}` : `出来高 ${s.volumeRatio}倍`)
+    : market === "jp" ? "日本株" : "米国株";
   let since = "";
   const now = priceOf(market, s.code);
   if (opts.since && fav && fav.price && now) {
@@ -655,8 +678,12 @@ function render() {
   const grid = document.getElementById("grid");
   const isFavTab = state.market === "fav";
   const isDuel = state.market === "duel";
-  document.getElementById("topsec").hidden = isFavTab || isDuel;
+  const isBreak = state.kind === "break" && !isFavTab && !isDuel;
+  document.getElementById("topsec").hidden = isFavTab || isDuel || isBreak;
   document.getElementById("listtitle").hidden = isFavTab || isDuel;
+  document.getElementById("listtitle").textContent = isBreak ? "底値の切り上げ → 崩れ" : "下ひげ × 出来高増";
+  document.getElementById("kinds").hidden = isFavTab || isDuel;
+  document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
   document.getElementById("duel").hidden = !isDuel;
   document.getElementById("transfer").hidden = !isFavTab;
   document.getElementById("send").hidden = !favs.length;
@@ -666,7 +693,8 @@ function render() {
   const lines = isFavTab ? ["短期線", "中期線", "長期線"] : FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML =
     `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
-    + `<span><i class="kband"></i>下ひげを付けた足</span>`;
+    + (isBreak ? `<span><i class="kband"></i>底値を割った足</span><span><i class="klow"></i>切り上げていた底値</span>`
+      : `<span><i class="kband"></i>${isFavTab ? "条件に合った足" : "下ひげを付けた足"}</span>`);
 
   const pastBox = document.getElementById("past");
   pastBox.hidden = true;
@@ -690,10 +718,13 @@ function render() {
     return;
   }
 
-  const market = DATA[state.market].frames[state.frame];
+  const frameData = DATA[state.market].frames[state.frame];
+  // 崩れは、下ひげと同じ形（count・past・stocks）で持っている。足の名前と期間は共通
+  const market = isBreak ? { ...frameData, ...breaksOf(state.market, state.frame) } : frameData;
   const list = market.stocks.slice(0, state.shown);
   const top = market.top;
-  sub.textContent = `長い下ひげを付けて、出来高が増えた銘柄（${market.bar}の${FRAMES[state.frame].name}）`;
+  sub.textContent = (isBreak ? "底値を切り上げてきたのに、前の底値を割った銘柄" : "長い下ひげを付けて、出来高が増えた銘柄")
+    + `（${market.bar}の${FRAMES[state.frame].name}）`;
   // 過去の成績（片方の市場だけ取り直した直後など、データがまだ無いときは出さない）
   if (market.past && market.past.length) {
     pastBox.hidden = false;
@@ -709,7 +740,9 @@ function render() {
     ? top.map((s, i) => card(state.market, s, { rank: i + 1 })).join("")
     : `<p class="empty">条件に合う銘柄がありません。</p>`;
   head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>時価総額の大きい順に${list.length}銘柄を表示`;
-  grid.innerHTML = list.map((s) => card(state.market, s)).join("");
+  grid.innerHTML = list.length || !isBreak
+    ? list.map((s) => card(state.market, s)).join("")
+    : `<p class="empty">この足で崩れた銘柄はありません。</p>`;
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
@@ -750,6 +783,13 @@ document.getElementById("frames").addEventListener("click", (e) => {
   const b = e.target.closest("[data-frame]");
   if (!b) return;
   state.frame = b.dataset.frame;
+  state.shown = STEP;
+  render();
+});
+document.getElementById("kinds").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kind]");
+  if (!b) return;
+  state.kind = b.dataset.kind;
   state.shown = STEP;
   render();
 });

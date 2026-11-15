@@ -47,13 +47,18 @@ def past_results(bars, at, volume_window, horizons):
     """過去の足すべてに同じ条件を当てはめて、条件に合った銘柄のその後の値動きを集計する。
 
     at 本目（取引の終わった直近の足）までを使う。horizons は「何本後の終値と比べるか」の組。
-    それぞれについて、回数（count）、上がった割合（win）、値動きの中央値（median）と、
+    """
+    done = {key: table.iloc[:len(table) + at + 1] for key, table in bars.items()}
+    return results_after(done["close"], _signals(done, volume_window)[2], horizons)
+
+
+def results_after(close, ok, horizons):
+    """ok（行が足、列が銘柄。条件に合った足が True）の足の終値が、その何本か後の終値までにどう動いたかを集計する。
+
+    horizons のそれぞれについて、回数（count）、上がった割合（win）、値動きの中央値（median）と、
     同じ時期の全銘柄の値（base_win・base_median）を返す。全銘柄と比べないと、相場全体が上がっただけなのか分からない。
     平均ではなく中央値を使う。Yahoo の株価にはまれに桁違いの値が混じり、平均はそれ1つで大きくずれる。
     """
-    done = {key: table.iloc[:len(table) + at + 1] for key, table in bars.items()}
-    ok = _signals(done, volume_window)[2]
-    close = done["close"]
     results = []
     for n in horizons:
         change = (close.shift(-n) / close - 1).replace([np.inf, -np.inf], np.nan)
