@@ -83,6 +83,24 @@ h1 { font-size: 1.375rem; font-weight: 600; margin: 0; text-wrap: balance; }
 .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; line-height: 1.5; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 上の部分（見出し・切り替え・凡例・件数・銘柄を足す欄）は、スクロールしても画面の上に残す。動くのはカードだけ。
+   スマホでは残す部分が画面をふさぐので、切り替えの段だけ残す */
+.pinned {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: -20px -16px 0;
+  padding: 20px 16px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 640px), (max-height: 620px) {
+  .pinned { display: contents; }
+  .tabs { position: sticky; top: 0; z-index: 10; margin: -6px -16px; padding: 6px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+}
 .tabs { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .market {
   display: inline-flex;
@@ -214,6 +232,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </head>
 <body>
 <main class="wrap">
+  <div class="pinned">
   <header>
     <h1>PEREGRAPH</h1>
     <p class="sub" id="sub">短期の移動平均線が中期線を抜けた銘柄</p>
@@ -241,7 +260,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   <div class="legend" id="legend" aria-label="チャートの見方"></div>
 
-  <section class="stack" id="hold" hidden>
+  <div class="stack" id="hold" hidden>
     <form class="transfer" id="holdform">
       <div class="holdadd">
         <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="銘柄コード（例: 7203 AAPL）">
@@ -251,8 +270,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <p id="holdnotice" aria-live="polite"></p>
     </form>
     <p class="listhead" id="holdhead"></p>
-    <div class="grid" id="holdgrid"></div>
-  </section>
+  </div>
 
   <h2 class="sechead" id="listtitle"></h2>
   <p class="listhead" id="listhead"></p>
@@ -260,6 +278,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" id="send">ほかの端末に送る</button>
     <p id="notice" aria-live="polite"></p>
   </div>
+  </div>
+
+  <div class="grid" id="holdgrid" hidden></div>
   <div class="grid" id="grid"></div>
   <button type="button" id="more" hidden>もっと見る</button>
 
@@ -576,6 +597,8 @@ function render() {
   const isFavTab = state.market === "fav";
   const isHold = state.market === "hold";
   document.getElementById("hold").hidden = !isHold;
+  document.getElementById("holdgrid").hidden = !isHold;
+  grid.hidden = isHold;
   const up = state.kind === "up";
   document.getElementById("kinds").hidden = isFavTab || isHold;
   document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
