@@ -12,6 +12,7 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from . import breakdown, jpx, prices, published, pullback
@@ -50,6 +51,9 @@ TOP_COUNT = 5
 MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
 # 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になり、下ひげの条件を簡単に通る
 MIN_PRICE = {"jp": 100, "us": 5}
+# 持ち株タブ用に株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
+# 持っている銘柄が一覧の下限より小さくても状態を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
+HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
 # 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
 # ふだんほとんど売買の無い銘柄は、少し買いが入っただけで出来高の倍率が大きくなるので外す。
 # 平均でなく中央値にするのは、出来高が跳ねた数日（下ひげを付けた日など）だけで通らないようにするため
@@ -176,6 +180,38 @@ def _frame(frame, market, info, bars, min_market_cap):
                        "stocks": [stock(symbol, row, broken) for symbol, row in breaks.iterrows()]}}
 
 
+def _holdings(market, info, bars):
+    """持ち株タブ用に、株価を取った全銘柄の週足の終値と、いまの状態（breakdown.state）を作る。
+
+    ページで登録した銘柄だけを出すが、どの銘柄が登録されるかはページを作る側では分からないので、全銘柄ぶん持たせる。
+    """
+    close = bars["close"]
+    shown = close.index[-CHART_BARS:]
+    at = -1 if _bar_done(shown[-1], "w", market) else -2
+    done = len(close) + at + 1           # 取引が終わった足の数。状態はここまでで決める
+    first = len(close) - len(shown)      # チャートの左端の足が、全体の何本目か
+    stocks = {}
+    for symbol in close.columns.intersection(info.index):
+        values = close[symbol].to_numpy(dtype=float)
+        if np.isnan(values[first:]).all():
+            continue
+        state = breakdown.state(values[:done], FRAMES["w"]["swing"])
+        row = info.loc[symbol]
+        stocks[row["code"]] = {
+            "name": row["name"] or row["code"],
+            "sector": "" if pd.isna(row["sector"]) else row["sector"],
+            "c": [_round(v) for v in values[first:]],
+            "trend": state["trend"],
+            "ago": None if state["since"] is None else done - 1 - state["since"],  # いまの向きになって何本たったか
+            "flipped": state["flipped"],
+            "warn": state["warn"],
+            "level": _round(state["level"]) if state["level"] is not None else None,
+            # チャートに収まる山と谷の [左から何本目か, 終値, 山なら1]
+            "pivots": [[i - first, _round(value), int(high)] for i, value, high in state["pivots"] if i >= first],
+        }
+    return {"bar": BAR_NAME["w"].format(shown[at]), "signal": len(shown) + at, "stocks": stocks}
+
+
 def _prices(info, daily):
     """保留した銘柄の「保留してからの値動き」用の、全銘柄の今の株価。
 
@@ -188,21 +224,25 @@ def _prices(info, daily):
 def _build(market, log):
     """1つの市場の株価を取り直して、ページに載せるデータを作る"""
     info = INFO[market](log)
-    # 株価は、載せる対象（時価総額と株価の下限以上）の銘柄だけ取る。Yahoo から取る量が減って速くなる
-    symbols = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])].tolist()
-    log(f"{market}: 時価総額と株価の下限以上は {len(symbols):,} 銘柄。日足を取得中...")
-    daily = prices.fetch_bars(symbols, "1d", "2y", "日足", log)
-    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median()
+    # 日足は、持ち株タブ用の銘柄（一覧より広い）を取る。一覧には、その中の時価総額と株価の下限以上の銘柄だけ載せる。
+    # 月足は一覧の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
+    log(f"{market}: 持ち株タブ用は {len(wide):,} 銘柄。日足を取得中...")
+    daily = prices.fetch_bars(wide, "1d", "2y", "日足", log)
+    _fill_live_close(daily, info["price"])
+    hold = _holdings(market, info, prices.to_weekly(daily))
+    listed = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])]
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(listed)
     symbols = turnover.index[turnover >= MIN_TURNOVER[market]].tolist()
     daily = {key: table[symbols] for key, table in daily.items()}
-    log(f"{market}: 売買代金の下限以上は {len(symbols):,} 銘柄")
+    log(f"{market}: 一覧に載せる（時価総額・株価・売買代金の下限以上）のは {len(symbols):,} 銘柄")
     frames = {"d": _frame("d", market, info, daily, MIN_MARKET_CAP[market])}
     # 週足は日足から作る（別に取らない）。日足の途中の足の終値は _frame で埋めてあるので、週足にも入る
     frames["w"] = _frame("w", market, info, prices.to_weekly(daily), MIN_MARKET_CAP[market])
     log(f"{market}: 月足を取得中...")
     monthly = prices.fetch_bars(symbols, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
     frames["m"] = _frame("m", market, info, monthly, MIN_MARKET_CAP[market])
-    return {"frames": frames, "prices": _prices(info, daily)}
+    return {"frames": frames, "hold": hold, "prices": _prices(info, daily)}
 
 
 def _published(log):
@@ -210,7 +250,8 @@ def _published(log):
     try:
         data = json.loads(published.payload())
         return {market: value for market, value in data.items()
-                if set(value.get("frames", {})) == set(FRAMES) and all("breaks" in f for f in value["frames"].values())}
+                if set(value.get("frames", {})) == set(FRAMES) and "hold" in value
+                and all("breaks" in f for f in value["frames"].values())}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
         return {}
