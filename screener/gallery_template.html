@@ -438,7 +438,7 @@ async function sendHolds() {
 }
 // 持ち株と注目のカードのチャート（ローソク足と移動平均）。s は銘柄ごとのファイルの、1つの足の種類ぶん。
 // 始値・高値・安値は終値からのずれ（千分率）で入っている。移動平均は、チャートより前の終値（p）も使ってここで計算する
-function stockChart(s, signal, sizes) {
+function stockChart(s, sizes) {
   const n = s.c.length;
   const o = s.c.map((c, i) => (c == null || s.o[i] == null ? null : c * (1 + s.o[i] / 1000)));
   const h = s.c.map((c, i) => (o[i] == null || s.h[i] == null ? null : Math.max(o[i], c) * (1 + s.h[i] / 1000)));
@@ -449,7 +449,7 @@ function stockChart(s, signal, sizes) {
     return part.length < size || part.some((v) => v == null) ? null : part.reduce((a, b) => a + b, 0) / size;
   });
   const [maS, maM, maL] = sizes.map(average);
-  return chart({ o, h, l, c: s.c, maS, maM, maL, signal });
+  return chart({ o, h, l, c: s.c, maS, maM, maL });
 }
 // 持ち株のカードは、抜けたばかりの銘柄を先に並べる（その中では足した順）
 function renderHold() {
@@ -488,7 +488,8 @@ function chart(s) {
   const y = (v) => P + ((max - v) / span) * (H - 2 * P);
   const f = (v) => v.toFixed(1);
 
-  const band = `<rect class="band" x="${f(s.signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>`;
+  // 抜けた足の帯は、抜けの一覧のカードだけに付ける（持ち株と注目のチャートには signal が無い）
+  const band = s.signal == null ? "" : `<rect class="band" x="${f(s.signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>`;
   const line = (arr, cls) => {
     const pts = arr.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
     return `<polyline class="${cls}" points="${pts}"></polyline>`;
@@ -539,7 +540,7 @@ function ownCard(market, code, opts = {}, known = {}) {
   const loaded = file && file !== "loading";
   const bars = loaded ? file[state.frame] : null;
   const body = file === "loading" ? `<p class="gone">読み込み中…</p>`
-    : bars ? stockChart(bars, DATA[market].frames[state.frame].signal, FRAMES[state.frame].sizes)
+    : bars ? stockChart(bars, FRAMES[state.frame].sizes)
       : `<p class="gone">この銘柄の${loaded ? FRAMES[state.frame].name + "は、まだありません。" : "株価は、いま取れていません。"}</p>`;
   const s = { code, name: (loaded && file.name) || known.name || code, sector: (loaded && file.sector) || known.sector || "", body };
   return card(market, s, { ...opts, own: true });
@@ -566,7 +567,7 @@ function render() {
   const lines = FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML =
     `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
-    + `<span><i class="kband"></i>${isFavTab || isHold ? "取引が終わった直近の足" : "抜けた足"}</span>`;
+    + (isFavTab || isHold ? "" : `<span><i class="kband"></i>抜けた足</span>`);
 
   if (isHold) {
     sub.textContent = `持っている銘柄（${FRAMES[state.frame].name}）`;
