@@ -51,39 +51,3 @@ def find(bars, at, volume_window):
     wick, volume_ratio, ok = _signals(bars, volume_window)
     table = pd.DataFrame({"wick": wick.iloc[at], "volume_ratio": volume_ratio.iloc[at]})[ok.iloc[at]]
     return table.assign(score=table["wick"] * table["volume_ratio"])
-
-
-def past_results(bars, at, volume_window, horizons):
-    """過去の足すべてに同じ条件を当てはめて、条件に合った銘柄のその後の値動きを集計する。
-
-    at 本目（取引の終わった直近の足）までを使う。horizons は「何本後の終値と比べるか」の組。
-    """
-    done = {key: table.iloc[:len(table) + at + 1] for key, table in bars.items()}
-    return results_after(done["close"], _signals(done, volume_window)[2], horizons)
-
-
-def results_after(close, ok, horizons):
-    """ok（行が足、列が銘柄。条件に合った足が True）の足の終値が、その何本か後の終値までにどう動いたかを集計する。
-
-    horizons のそれぞれについて、回数（count）、上がった割合（win）、値動きの中央値（median）と、
-    同じ時期の全銘柄の値（base_win・base_median）を返す。全銘柄と比べないと、相場全体が上がっただけなのか分からない。
-    平均ではなく中央値を使う。Yahoo の株価にはまれに桁違いの値が混じり、平均はそれ1つで大きくずれる。
-    """
-    results = []
-    for n in horizons:
-        change = (close.shift(-n) / close - 1).replace([np.inf, -np.inf], np.nan)
-        hit = ok & change.notna()
-        per_bar = hit.sum(axis=1)  # その足で条件に合った銘柄の数。全銘柄の値は、この数で重みを付けて平均する
-        count = int(per_bar.sum())
-        if not count:
-            continue
-        hit_change = change.where(hit)
-        results.append({
-            "after": n,
-            "count": count,
-            "win": float((hit_change > 0).sum().sum() / count),
-            "median": float(np.nanmedian(hit_change.to_numpy())),
-            "base_win": float(((change > 0).sum(axis=1) / change.notna().sum(axis=1) * per_bar).sum() / count),
-            "base_median": float((change.median(axis=1) * per_bar).sum() / count),
-        })
-    return results
