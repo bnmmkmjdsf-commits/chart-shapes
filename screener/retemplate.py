@@ -24,8 +24,8 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
-        counts = {frame: result["count"] for frame, result in data[market]["frames"].items()}
-        print(f"{label}: {counts}（前回のデータ）")
+        counts = {frame: (result["up"]["count"], result["down"]["count"]) for frame, result in data[market]["frames"].items()}
+        print(f"{label}: {counts}（前回のデータ。上抜け・下抜けの銘柄数）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

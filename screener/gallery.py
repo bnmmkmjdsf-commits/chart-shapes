@@ -1,4 +1,4 @@
-"""日足・週足・月足で長い下ひげを付けて出来高が増えた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
+"""日足・週足・月足で短期の移動平均線が中期線を上に抜けた・下に抜けた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取って作る。GitHub Actions で平日に動かし、GitHub Pages で公開している。
 
@@ -15,16 +15,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import breakdown, jpx, prices, published, pullback
+from . import breakdown, cross, jpx, prices, published
 
 # チャートに描く足の本数
 CHART_BARS = 52
-# 足の種類ごとの設定。ma はチャートに描く移動平均の本数（短期・中期・長期）、
-# volume_window は出来高を比べる「その前の平均」の本数、
+# 足の種類ごとの、チャートに描く移動平均の本数（短期・中期・長期）。抜けは、短期線と中期線で見る
 FRAMES = {
-    "d": {"label": "日足", "ma": (5, 25, 75), "volume_window": 25},
-    "w": {"label": "週足", "ma": (13, 26, 52), "volume_window": 13},
-    "m": {"label": "月足", "ma": (12, 24, 60), "volume_window": 12},
+    "d": {"label": "日足", "ma": (5, 25, 75)},
+    "w": {"label": "週足", "ma": (13, 26, 52)},
+    "m": {"label": "月足", "ma": (12, 24, 60)},
 }
 # 持ち株タブで、週足の山・谷に数える上げ下げの大きさ（これより小さい上げ下げは数えない）
 HOLD_SWING = 0.07
@@ -45,18 +44,16 @@ US_SECTORS = {
     "Utilities": "公益事業",
 }
 INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
-TOP_COUNT = 5
 # 載せる銘柄の時価総額の下限（日本株は300億円、米国株は10億ドル）。
-# ふだん売買の少ない小型株は、出来高の倍率が簡単に大きくなるので外す
+# 一覧が小型株で埋まらないようにする
 MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
-# 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になり、下ひげの条件を簡単に通る
+# 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になる
 MIN_PRICE = {"jp": 100, "us": 5}
 # 持ち株タブ用に株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
 # 持っている銘柄が一覧の下限より小さくても状態を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
 # 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
-# ふだんほとんど売買の無い銘柄は、少し買いが入っただけで出来高の倍率が大きくなるので外す。
-# 平均でなく中央値にするのは、出来高が跳ねた数日（下ひげを付けた日など）だけで通らないようにするため
+# ふだんほとんど売買の無い銘柄を外す。平均でなく中央値にするのは、出来高が跳ねた数日だけで通らないようにするため
 MIN_TURNOVER = {"jp": 1e8, "us": 5e6}
 TURNOVER_DAYS = 60
 
@@ -121,21 +118,22 @@ def _bar_done(start, frame, market):
 BAR_NAME = {"d": "{:%Y/%m/%d}", "w": "{:%Y/%m/%d} の週", "m": "{:%Y/%m}"}
 
 
-def _frame(frame, market, info, bars, min_market_cap):
-    """1つの足の種類（日足・週足・月足）について、条件に合う銘柄とチャートのデータを作る"""
-    spec = FRAMES[frame]
+def _frame(frame, market, info, bars, listed):
+    """1つの足の種類（日足・週足・月足）について、抜けた銘柄の一覧と、全銘柄のいちばん新しい抜けを作る。
+
+    bars は株価を取った全銘柄。一覧には、その中の listed（時価総額・株価・売買代金の下限以上）の銘柄だけ載せる。
+    返すのは（ページに載せる一覧, {銘柄: (向き, 何本前か)}）。
+    """
     _fill_live_close(bars, info["price"])
-    # 途中の足は出来高が少なく比べられないので、取引が終わった直近の足で選ぶ
+    # 途中の足は終値がまだ動くので、取引が終わった直近の足で見る
     shown = bars["close"].index[-CHART_BARS:]
     at = -1 if _bar_done(shown[-1], frame, market) else -2
-    hits = pullback.find(bars, at, spec["volume_window"]).join(info, how="inner")
-    hits = hits[hits["market_cap"] >= min_market_cap].sort_values("market_cap", ascending=False)
-    tops = hits.nlargest(TOP_COUNT, "score")
-
-    short, mid, long = pullback.moving_averages(bars["close"], spec["ma"])
+    short, mid, long = cross.moving_averages(bars["close"], FRAMES[frame]["ma"])
+    found = cross.last_cross(short, mid, len(bars["close"]) + at + 1)
     series = {"o": bars["open"], "h": bars["high"], "l": bars["low"], "c": bars["close"],
               "maS": short, "maM": mid, "maL": long}
-    signal = len(shown) + at  # 下ひげを付けた足が、チャートの左から何本目か
+    signal = len(shown) + at  # 抜けた足が、チャートの左から何本目か
+    rows = info.loc[info.index.intersection(listed)].sort_values("market_cap", ascending=False)
 
     def stock(symbol, row):
         s = {
@@ -143,15 +141,16 @@ def _frame(frame, market, info, bars, min_market_cap):
             "name": row["name"] or row["code"],
             "sector": "" if pd.isna(row["sector"]) else row["sector"],
             "signal": signal,
-            "wick": round(row["wick"] * 100, 1),
-            "volumeRatio": round(row["volume_ratio"], 1),
         }
         s.update({key: [_round(v) for v in table[symbol].loc[shown]] for key, table in series.items()})
         return s
 
-    return {"bar": BAR_NAME[frame].format(shown[at]), "count": len(hits),
-            "stocks": [stock(symbol, row) for symbol, row in hits.iterrows()],
-            "top": [stock(symbol, row) for symbol, row in tops.iterrows()]}
+    def side(direction):
+        """直近の足で上抜け（1）・下抜け（-1）した銘柄を、時価総額の大きい順に"""
+        stocks = [stock(symbol, row) for symbol, row in rows.iterrows() if found.get(symbol) == (direction, 0)]
+        return {"count": len(stocks), "stocks": stocks}
+
+    return {"bar": BAR_NAME[frame].format(shown[at]), "up": side(1), "down": side(-1)}, found
 
 
 def _holdings(market, info, bars):
@@ -188,7 +187,7 @@ def _holdings(market, info, bars):
 
 
 def _prices(info, daily):
-    """保留した銘柄の「保留してからの値動き」用の、全銘柄の今の株価。
+    """注目の銘柄の「☆を付けてからの値動き」用の、全銘柄の今の株価。
 
     株価を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる
     """
@@ -199,25 +198,26 @@ def _prices(info, daily):
 def _build(market, log):
     """1つの市場の株価を取り直して、ページに載せるデータを作る"""
     info = INFO[market](log)
-    # 日足は、持ち株タブ用の銘柄（一覧より広い）を取る。一覧には、その中の時価総額と株価の下限以上の銘柄だけ載せる。
-    # 月足は一覧の銘柄だけ取る。Yahoo から取る量が減って速くなる
+    # 株価は、持ち株タブと抜けの札のために、一覧より広く取る。一覧には、その中の時価総額・株価・売買代金の下限以上の銘柄だけ載せる
     wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
-    log(f"{market}: 持ち株タブ用は {len(wide):,} 銘柄。日足を取得中...")
+    log(f"{market}: 株価を取るのは {len(wide):,} 銘柄。日足を取得中...")
     daily = prices.fetch_bars(wide, "1d", "2y", "日足", log)
     _fill_live_close(daily, info["price"])
-    hold = _holdings(market, info, prices.to_weekly(daily))
-    listed = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])]
-    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(listed)
-    symbols = turnover.index[turnover >= MIN_TURNOVER[market]].tolist()
-    daily = {key: table[symbols] for key, table in daily.items()}
-    log(f"{market}: 一覧に載せる（時価総額・株価・売買代金の下限以上）のは {len(symbols):,} 銘柄")
-    frames = {"d": _frame("d", market, info, daily, MIN_MARKET_CAP[market])}
-    # 週足は日足から作る（別に取らない）。日足の途中の足の終値は _frame で埋めてあるので、週足にも入る
-    frames["w"] = _frame("w", market, info, prices.to_weekly(daily), MIN_MARKET_CAP[market])
+    weekly = prices.to_weekly(daily)  # 週足は日足から作る（別に取らない）
     log(f"{market}: 月足を取得中...")
-    monthly = prices.fetch_bars(symbols, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
-    frames["m"] = _frame("m", market, info, monthly, MIN_MARKET_CAP[market])
-    return {"frames": frames, "hold": hold, "prices": _prices(info, daily)}
+    monthly = prices.fetch_bars(wide, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
+    capped = info.index[(info["market_cap"] >= MIN_MARKET_CAP[market]) & (info["price"] >= MIN_PRICE[market])]
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(capped)
+    listed = turnover.index[turnover >= MIN_TURNOVER[market]]
+    log(f"{market}: 一覧に載せる（時価総額・株価・売買代金の下限以上）のは {len(listed):,} 銘柄")
+    frames, crosses = {}, {}
+    for frame, bars in [("d", daily), ("w", weekly), ("m", monthly)]:
+        frames[frame], found = _frame(frame, market, info, bars, listed)
+        for symbol, last in found.items():
+            if symbol in info.index:
+                crosses.setdefault(info.at[symbol, "code"], {})[frame] = list(last)
+    # cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き, 何本前か]}}。持ち株と注目のカードの札に使う
+    return {"frames": frames, "hold": _holdings(market, info, weekly), "cross": crosses, "prices": _prices(info, daily)}
 
 
 def _published(log):
@@ -225,14 +225,14 @@ def _published(log):
     try:
         data = json.loads(published.payload())
         return {market: value for market, value in data.items()
-                if set(value.get("frames", {})) == set(FRAMES) and "hold" in value}
+                if set(value.get("frames", {})) == set(FRAMES) and "hold" in value and "cross" in value}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
         return {}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="日米の「下ひげ × 出来高増」ページを作る")
+    parser = argparse.ArgumentParser(description="日米の「移動平均の抜け」ページを作る")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="書き出す HTML のパス")
     parser.add_argument("--markets", choices=["both", "jp", "us"], default="both",
                         help="株価を取り直す市場。片方だけのとき、もう片方は公開中のページのデータを使う")
@@ -254,7 +254,8 @@ def main():
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
         for frame, result in data[market]["frames"].items():
-            print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: {result['count']} 銘柄")
+            print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: "
+                  f"上抜け {result['up']['count']} 銘柄、下抜け {result['down']['count']} 銘柄")
         print(f"{label} 持ち株タブ用: {len(data[market]['hold']['stocks']):,} 銘柄")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
