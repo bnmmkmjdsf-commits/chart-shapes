@@ -16,6 +16,11 @@ import numpy as np
 import pandas as pd
 
 RISING_LOWS = 2
+# 持ち株の「横ばい」。直近 RANGE_BARS 本の終値の幅（高値 ÷ 安値 − 1）が RANGE_WIDTH 以下か、
+# その間に向きが RANGE_FLIPS 回以上入れ替わっていて、いまの終値がその前までの幅の中にあるとき
+RANGE_BARS = 26
+RANGE_WIDTH = 0.15
+RANGE_FLIPS = 3   # 下げて戻しただけ（2回）は横ばいに数えない
 
 
 def _scan(close, swing, window):
@@ -113,11 +118,14 @@ def state(close, swing):
             下げの途中で谷が前の谷より高い（底値の切り上げ）
       level: 次に向きが切り替わる終値（上げなら直前の谷、下げなら直前の山）。無ければ None
       pivots: 山と谷の (足の番号, 終値, 山なら True)
+      range: 横ばいなら、直近 RANGE_BARS 本の終値の (下限, 上限)。横ばいでなければ None。
+             横ばいの間は、山と谷を行き来するたびに向きが入れ替わってしまい、向きは当てにならない
     """
     pivots = _pivots(close, swing)
     last = {True: None, False: None}   # 直前の山・谷の (足の番号, 終値)
     prev = {True: None, False: None}   # その前の山・谷
     trend, since, flipped = None, None, False
+    flips = []                         # 向きが逆に入れ替わった足の番号
     k, now = 0, np.nan   # now は値のある直近の終値
     for i, c in enumerate(close):
         while k < len(pivots) and pivots[k][0] <= i:
@@ -133,12 +141,25 @@ def state(close, swing):
             trend, since, flipped = "down", i, trend == "up"
         elif trend != "up" and last[True] and c > last[True][1]:
             trend, since, flipped = "up", i, trend == "down"
+        else:
+            continue
+        if flipped:
+            flips.append(i)
     # 早めの合図は、いまの向きになってからできた山（谷）だけで見る。それをもう超えた（割った）なら消える
     side = trend == "up"   # 上げなら山、下げなら谷を見る
     mark, before, c = last[side], prev[side], now
     warn = bool(trend and mark and before and mark[0] >= since
                 and (mark[1] < before[1] and c <= mark[1] if side else mark[1] > before[1] and c >= mark[1]))
     level = last[not side] if trend else None
-    return {"trend": trend, "since": since, "flipped": flipped, "warn": warn,
+    # 横ばい。いまの終値が、その前までの幅を抜けていたら横ばいとはしない（抜けたのは動き出しの合図）
+    before = close[-RANGE_BARS - 1:-1]
+    before = before[~np.isnan(before)]
+    span = None
+    if len(before) >= RANGE_BARS // 2 and before.min() <= now <= before.max():
+        narrow = before.max() / before.min() - 1 <= RANGE_WIDTH
+        swapped = sum(i >= len(close) - RANGE_BARS for i in flips) >= RANGE_FLIPS
+        if narrow or swapped:
+            span = (before.min(), before.max())
+    return {"trend": trend, "since": since, "flipped": flipped, "warn": warn, "range": span,
             "level": level[1] if level else None,
             "pivots": [(at, value, high) for _, at, value, high in pivots]}

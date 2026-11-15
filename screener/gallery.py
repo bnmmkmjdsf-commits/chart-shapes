@@ -206,6 +206,7 @@ def _holdings(market, info, bars):
             "flipped": state["flipped"],
             "warn": state["warn"],
             "level": _round(state["level"]) if state["level"] is not None else None,
+            "range": [_round(v) for v in state["range"]] if state["range"] else None,  # 横ばいの [下限, 上限]
             # チャートに収まる山と谷の [左から何本目か, 終値, 山なら1]
             "pivots": [[i - first, _round(value), int(high)] for i, value, high in state["pivots"] if i >= first],
         }

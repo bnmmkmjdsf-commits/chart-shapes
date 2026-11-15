@@ -331,7 +331,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p>直近の足: 日足は大引け後からその日の足、週足は金曜の大引け後からその週の足（月〜木は先週の足）、月足は翌月に入ってから前の月の足。</p>
     <p>TOP 5: その中で「下ひげの長さ（株価比）× 出来高の倍率」の大きい順に5銘柄。カードの「下ひげ」は株価に対する長さ。</p>
     <p>過去の成績: 同じ条件を過去の足すべてに当てはめ、条件に合った銘柄の終値が、その何本か後の終値までにどう動いたかを集計したもの（日足・週足は過去2年、月足は過去10年）。「値動き」は中央値（大きい順に並べたときの真ん中の値）。カッコ内は、同じ時期の全銘柄（このページの対象銘柄）の値。いま上場している銘柄だけで計算しているので、実際より少し良く出ます。将来の値動きを約束するものではありません。</p>
-    <p>持ち株: 銘柄コードを入れて「足す」と、その銘柄の週足の終値の折れ線と、いまの状態が出ます（空白で区切れば、まとめて足せます）。登録はこの端末のブラウザに保存され、ほかの人には見えません。山と谷は、終値が直前の山（谷）から7%以上動いたところで数えます。向きは、週の終値が直前の谷を割ったら下げ、直前の山を超えたら上げに切り替わります。「崩れ」は上げから下げに切り替わって4週以内、「下落中」はそれより後。「反転」は下げから上げに切り替わって4週以内、「上昇中」はそれより後。「注意」は上げの途中で、高値が前の高値に届かずに下げているとき。「下げ止まり」は下げの途中で、底値が前の底値より高くなったとき。点線は、次に向きが切り替わる株価です。状態が変わるのは、週の取引が終わったとき（金曜の大引け後）だけです。対象は、日本株が東証の全銘柄、米国株が時価総額3億ドル以上。</p>
+    <p>持ち株: 銘柄コードを入れて「足す」と、その銘柄の週足の終値の折れ線と、いまの状態が出ます（空白で区切れば、まとめて足せます）。登録はこの端末のブラウザに保存され、ほかの人には見えません。山と谷は、終値が直前の山（谷）から7%以上動いたところで数えます。向きは、週の終値が直前の谷を割ったら下げ、直前の山を超えたら上げに切り替わります。「崩れ」は上げから下げに切り替わって4週以内、「下落中」はそれより後。「反転」は下げから上げに切り替わって4週以内、「上昇中」はそれより後。「注意」は上げの途中で、高値が前の高値に届かずに下げているとき。「下げ止まり」は下げの途中で、底値が前の底値より高くなったとき。「横ばい」は、直近26週の終値の幅が15%以内か、その間に向きが3回以上入れ替わっていて、いまの終値がその幅の中にあるとき（向きの合図は当てにならないので、上限と下限を出します。どちらかを抜けたら横ばいではなくなります）。点線は、次に向きが切り替わる株価（横ばいなら上限と下限）です。状態が変わるのは、週の取引が終わったとき（金曜の大引け後）だけです。対象は、日本株が東証の全銘柄、米国株が時価総額3億ドル以上。</p>
     <p>崩れ: 終値の折れ線で見て、底値を2回以上続けて切り上げてきた銘柄が、取引が終わった直近の足で、最後の底値を終値で初めて下回ったもの。山と谷は、終値が直前の山（谷）から日足は5%・週足は7%・月足は10%以上動いたところで数え、それより小さい上げ下げは数えません。チャートの短い横線が切り上げていた底値、点線が割った底値の高さ。カードの「底値割れ」は割った底値から、「高値から」は上げの間の一番高い終値から、どれだけ下かです。高値の切り下げ（前の山を超えられない）は見ていません。</p>
     <p>移動平均は、日足が5日・25日・75日、週足が13週・26週・52週、月足が12か月・24か月・60か月。ローソク足は赤が陽線、緑が陰線。カードを押すと株探の銘柄ページが開きます。</p>
     <p>☆を押すと「保留」に残せます。保留タブでは、保留した日の株価から今の株価までの値動きを出します。保留はこの端末のブラウザに保存されます。スマホとパソコンで合わせたいときは、保留タブの「ほかの端末に送る」でできるリンクを、もう一方の端末で開いてください（まだ無い銘柄だけが足されます）。</p>
@@ -488,18 +488,25 @@ async function sendHolds() {
 // 状態の札。rank は並び順（気にした方がいいものを先に）
 const FRESH_BARS = 4;
 function holdStatus(s) {
-  if (!s || !s.trend) return { key: "none", label: "判定なし", rank: 6 };
+  if (s && s.range) return { key: "range", label: "横ばい", rank: 4 };
+  if (!s || !s.trend) return { key: "none", label: "判定なし", rank: 7 };
   const fresh = s.flipped && s.ago <= FRESH_BARS;
   if (s.trend === "down") {
     return s.warn ? { key: "basing", label: "下げ止まり", rank: 3 }
-      : fresh ? { key: "broke", label: "崩れ", rank: 0 } : { key: "down", label: "下落中", rank: 4 };
+      : fresh ? { key: "broke", label: "崩れ", rank: 0 } : { key: "down", label: "下落中", rank: 5 };
   }
   return s.warn ? { key: "caution", label: "注意", rank: 1 }
-    : fresh ? { key: "turned", label: "反転", rank: 2 } : { key: "up", label: "上昇中", rank: 5 };
+    : fresh ? { key: "turned", label: "反転", rank: 2 } : { key: "up", label: "上昇中", rank: 6 };
 }
 // 状態の説明と、次に向きが切り替わる株価
 function holdNext(market, s, status) {
   if (status.key === "none") return "山と谷がまだ無く、向きが決まりません。";
+  if (status.key === "range") {
+    const [bottom, top] = s.range;
+    const price = s.c.filter((v) => v != null).pop();
+    return `この半年、<b>${money(market, bottom)}</b>〜<b>${money(market, top)}</b> の間で動いています。`
+      + ` 週の終値が上限を超える（いまから ${pct((top / price - 1) * 100)}）か、下限を割る（${pct((bottom / price - 1) * 100)}）と、動き出しの合図`;
+  }
   const ago = s.ago === 0 ? "直近の週に" : `${s.ago}週前に`;
   const lead = {
     broke: `${ago}前の底値を割りました。`,
@@ -519,7 +526,9 @@ function holdNext(market, s, status) {
 // 終値の折れ線。山の上・谷の下に短い横線、次に向きが切り替わる株価に点線
 function lineChart(s, signal) {
   const W = 320, H = 180, P = 14, n = s.c.length;
-  const values = s.c.filter((v) => v != null).concat(s.level == null ? [] : [s.level]);
+  // 点線は、横ばいなら上限と下限、そうでなければ次に向きが切り替わる株価
+  const levels = s.range || (s.level == null ? [] : [s.level]);
+  const values = s.c.filter((v) => v != null).concat(levels);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
   const step = W / n;
@@ -531,7 +540,7 @@ function lineChart(s, signal) {
     const at = y(v) + (high ? -7 : 7);
     return `<line class="lowmark" x1="${f(x(i) - 7)}" x2="${f(x(i) + 7)}" y1="${f(at)}" y2="${f(at)}"></line>`;
   }).join("");
-  const level = s.level == null ? "" : `<line class="lowline" x1="0" x2="${W}" y1="${f(y(s.level))}" y2="${f(y(s.level))}"></line>`;
+  const level = levels.map((v) => `<line class="lowline" x1="0" x2="${W}" y1="${f(y(v))}" y2="${f(y(v))}"></line>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足の終値の折れ線">
     <rect class="band" x="${f(signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>
     ${level}<polyline class="closeline" points="${pts}"></polyline>${marks}
@@ -864,7 +873,7 @@ function render() {
   document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
   const lines = isFavTab ? ["短期線", "中期線", "長期線"] : FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML = isHold
-    ? `<span><i class="klow"></i>山と谷</span><span><i class="klow" style="border-top-style:dashed;border-top-width:1px"></i>次に向きが切り替わる株価</span>`
+    ? `<span><i class="klow"></i>山と谷</span><span><i class="klow" style="border-top-style:dashed;border-top-width:1px"></i>節目の株価</span>`
       + `<span><i class="kband"></i>状態を決めた週</span>`
     : `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
     + (isBreak ? `<span><i class="kband"></i>底値を割った足</span><span><i class="klow"></i>切り上げていた底値</span>`
