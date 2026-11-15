@@ -111,7 +111,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legend .k26 { border-color: var(--ma26); }
 .legend .k52 { border-color: var(--ma52); }
 .legend .kband { width: 10px; height: 12px; border: 0; background: var(--band); }
-.legend .klow { border-color: var(--fg); }
 .listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 12px; }
@@ -163,20 +162,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .price { margin-left: 8px; color: var(--fg); }
 .card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
 .band { fill: var(--band); stroke: none; }
-/* 持ち株: 山と谷の印（短い横線）と、節目の株価の点線 */
-.lowmark { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
-.lowline { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 3 3; }
-/* 持ち株: 終値の折れ線、状態の札、銘柄を足す欄 */
+/* 持ち株と注目: 抜けの札、銘柄を足す欄 */
 .badge { flex: none; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.badge.broke { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-.badge.caution { background: var(--star); border-color: var(--star); color: #15213a; }
-.badge.turned, .badge.basing { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .badge.cu { border-color: var(--up); color: var(--up); }
 .badge.cd { border-color: var(--down); color: var(--down); }
 .card .alerts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .card .alerts:empty { display: none; }
-.card .next { margin-top: 4px; font-size: 0.8125rem; line-height: 1.6; }
-.card .next b { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .holdadd { display: flex; flex-wrap: wrap; gap: 8px; }
 .holdadd input {
   font: inherit; color: inherit; flex: 1 1 220px; min-width: 0; max-width: 420px;
@@ -280,9 +271,9 @@ const STEP = 20;
 const state = { market: "jp", frame: "w", kind: "up", shown: STEP };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
-  d: { name: "日足", ma: ["5日線", "25日線", "75日線"], ago: "日前" },
-  w: { name: "週足", ma: ["13週線", "26週線", "52週線"], ago: "週前" },
-  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], ago: "か月前" },
+  d: { name: "日足", ma: ["5日線", "25日線", "75日線"], sizes: [5, 25, 75], ago: "日前" },
+  w: { name: "週足", ma: ["13週線", "26週線", "52週線"], sizes: [13, 26, 52], ago: "週前" },
+  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], sizes: [12, 24, 60], ago: "か月前" },
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -368,10 +359,29 @@ async function sendFavs() {
   }
 }
 // 持ち株。ページで登録した銘柄（市場とコードだけ）を、この端末のブラウザに保存する。
-// 状態と週足の終値は、ページが全銘柄ぶん持っている（DATA[市場].hold）
 const HOLD_KEY = "holdings-v1";
 const HOLD_TRANSFER = "#hold=";
-const holdData = (market) => DATA[market].hold || { bar: "", signal: 0, stocks: {} };
+// 持ち株と注目のチャートは、銘柄ごとのファイル（s/市場/コード.json）から読む。全銘柄ぶんをページに持たせると重いため。
+// stockFiles の値は、読めたらその中身、読み込み中は "loading"、無い・読めないときは null
+const stockFiles = new Map();
+let renderQueued = false;
+function loadStock(market, code) {
+  const key = `${market}|${code}`;
+  if (!stockFiles.has(key)) {
+    stockFiles.set(key, "loading");
+    fetch(`s/${market}/${encodeURIComponent(code)}.json`)
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null)
+      .then((data) => {
+        stockFiles.set(key, data);
+        // 何銘柄かまとめて届いても、描き直しは1回にする
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; render(); });
+      });
+  }
+  return stockFiles.get(key);
+}
 let holds = (() => {
   try { return JSON.parse(localStorage.getItem(HOLD_KEY)) || []; } catch { return []; }
 })();
@@ -398,7 +408,7 @@ function addHolds(text) {
   const codes = text.normalize("NFKC").toUpperCase().split(/[\s,、]+/).filter(Boolean);
   const added = [], dup = [], missing = [];
   for (const code of codes) {
-    const market = ["jp", "us"].find((m) => holdData(m).stocks[code]);
+    const market = ["jp", "us"].find((m) => priceOf(m, code) != null);
     if (!market) missing.push(code);
     else if (hasHold(market, code)) dup.push(code);
     else { holds.push({ market, code }); added.push(code); }
@@ -426,119 +436,31 @@ async function sendHolds() {
   }
   render();
 }
-// 状態の札。rank は並び順（気にした方がいいものを先に）
-const FRESH_BARS = 4;
-function holdStatus(s) {
-  if (s && s.range) return { key: "range", label: "横ばい", rank: 4 };
-  if (!s || !s.trend) return { key: "none", label: "判定なし", rank: 7 };
-  const fresh = s.flipped && s.ago <= FRESH_BARS;
-  if (s.trend === "down") {
-    return s.warn ? { key: "basing", label: "下げ止まり", rank: 3 }
-      : fresh ? { key: "broke", label: "崩れ", rank: 0 } : { key: "down", label: "下落中", rank: 5 };
-  }
-  return s.warn ? { key: "caution", label: "注意", rank: 1 }
-    : fresh ? { key: "turned", label: "反転", rank: 2 } : { key: "up", label: "上昇中", rank: 6 };
-}
-// 状態の説明と、次に向きが切り替わる株価
-function holdNext(market, s, status) {
-  if (status.key === "none") return "山と谷がまだ無く、向きが決まりません。";
-  if (status.key === "range") {
-    const [bottom, top] = s.range;
-    const price = s.c.filter((v) => v != null).pop();
-    return `この半年、<b>${money(market, bottom)}</b>〜<b>${money(market, top)}</b> の間で動いています。`
-      + ` 週の終値が上限を超える（いまから ${pct((top / price - 1) * 100)}）か、下限を割る（${pct((bottom / price - 1) * 100)}）と、動き出しの合図`;
-  }
-  const ago = s.ago === 0 ? "直近の週に" : `${s.ago}週前に`;
-  const lead = {
-    broke: `${ago}前の底値を割りました。`,
-    down: s.flipped ? `${ago}前の底値を割ってから下げが続いています。` : "下げが続いています。",
-    basing: "底値が前の底値より高くなりました。",
-    caution: "高値が前の高値に届かずに下げています。",
-    turned: `${ago}前の高値を超えました。`,
-    up: "底値を切り上げています。",
-  }[status.key];
-  if (s.level == null) return lead;
-  const now = s.c.filter((v) => v != null).pop();
-  const gap = pct((s.level / now - 1) * 100);
-  return lead + (s.trend === "up"
-    ? ` 週の終値が <b>${money(market, s.level)}</b> を割ると崩れ（いまから ${gap}）`
-    : ` 週の終値が <b>${money(market, s.level)}</b> を超えると反転（いまから ${gap}）`);
-}
-// 持ち株と注目のカードの、週足のローソク足と移動平均。ページを軽くするため、始値・高値・安値は終値からのずれ（千分率）で、
-// 移動平均はチャートより前の終値（p）から、ここで計算する。
-// opts.marks が true なら（持ち株）、山の上・谷の下に短い横線と、節目の株価に点線を足す
-const WEEK_MA = [13, 26, 52];
-function weekChart(s, signal, opts = {}) {
-  const W = 320, H = 180, P = 14, n = s.c.length;
-  const open = s.c.map((c, i) => (c == null || s.o[i] == null ? null : c * (1 + s.o[i] / 1000)));
-  const high = s.c.map((c, i) => (open[i] == null || s.h[i] == null ? null : Math.max(open[i], c) * (1 + s.h[i] / 1000)));
-  const low = s.c.map((c, i) => (open[i] == null || s.l[i] == null ? null : Math.min(open[i], c) * (1 - s.l[i] / 1000)));
+// 持ち株と注目のカードのチャート（ローソク足と移動平均）。s は銘柄ごとのファイルの、1つの足の種類ぶん。
+// 始値・高値・安値は終値からのずれ（千分率）で入っている。移動平均は、チャートより前の終値（p）も使ってここで計算する
+function stockChart(s, signal, sizes) {
+  const n = s.c.length;
+  const o = s.c.map((c, i) => (c == null || s.o[i] == null ? null : c * (1 + s.o[i] / 1000)));
+  const h = s.c.map((c, i) => (o[i] == null || s.h[i] == null ? null : Math.max(o[i], c) * (1 + s.h[i] / 1000)));
+  const l = s.c.map((c, i) => (o[i] == null || s.l[i] == null ? null : Math.min(o[i], c) * (1 - s.l[i] / 1000)));
   const all = (s.p || []).concat(s.c), before = all.length - n;
   const average = (size) => s.c.map((_, i) => {
-    const part = all.slice(before + i - size + 1, before + i + 1);
-    return before + i - size + 1 < 0 || part.some((v) => v == null) ? null : part.reduce((a, b) => a + b, 0) / size;
+    const part = all.slice(Math.max(0, before + i - size + 1), before + i + 1);
+    return part.length < size || part.some((v) => v == null) ? null : part.reduce((a, b) => a + b, 0) / size;
   });
-  const [maS, maM, maL] = WEEK_MA.map(average);
-  // 点線は、横ばいなら上限と下限、そうでなければ次に向きが切り替わる株価
-  const levels = !opts.marks ? [] : s.range || (s.level == null ? [] : [s.level]);
-  const values = [...high, ...low, ...s.c, ...maS, ...maM, ...maL].filter((v) => v != null).concat(levels);
-  const max = Math.max(...values), min = Math.min(...values);
-  const span = max - min || 1;
-  const step = W / n, body = Math.max(1, step * 0.62);
-  const x = (i) => (i + 0.5) * step;
-  const y = (v) => P + ((max - v) / span) * (H - 2 * P);
-  const f = (v) => v.toFixed(1);
-  const line = (arr, cls) => {
-    const pts = arr.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
-    return `<polyline class="${cls}" points="${pts}"></polyline>`;
-  };
-  const candles = s.c.map((c, i) => {
-    const o = open[i], h = high[i], l = low[i];
-    if ([o, h, l, c].some((v) => v == null)) return "";
-    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
-    return `<g class="${c >= o ? "up" : "down"}">
-      <line x1="${f(x(i))}" x2="${f(x(i))}" y1="${f(y(h))}" y2="${f(y(l))}"></line>
-      <rect x="${f(x(i) - body / 2)}" y="${f(top)}" width="${f(body)}" height="${f(Math.max(0.8, bottom - top))}"></rect>
-    </g>`;
-  }).join("");
-  // 山と谷は終値で決めているが、印は足に重ならないよう、ひげの外側に置く
-  const marks = !opts.marks ? "" : s.pivots.map(([i, v, isHigh]) => {
-    const at = isHigh ? y(high[i] ?? v) - 5 : y(low[i] ?? v) + 5;
-    return `<line class="lowmark" x1="${f(x(i) - 6)}" x2="${f(x(i) + 6)}" y1="${f(at)}" y2="${f(at)}"></line>`;
-  }).join("");
-  const level = levels.map((v) => `<line class="lowline" x1="0" x2="${W}" y1="${f(y(v))}" y2="${f(y(v))}"></line>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="週足のローソク足チャート">
-    <rect class="band" x="${f(signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>
-    ${line(maL, "ma52")}${line(maM, "ma26")}${line(maS, "ma13")}${level}${candles}${marks}
-  </svg>`;
+  const [maS, maM, maL] = sizes.map(average);
+  return chart({ o, h, l, c: s.c, maS, maM, maL, signal });
 }
-function holdCard(h) {
-  const data = holdData(h.market), s = data.stocks[h.code];
-  const status = holdStatus(s);
-  const now = priceOf(h.market, h.code);
-  return `<div class="card">
-    <a href="${esc(detailUrl(h.market, h.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="nm"><span class="name" title="${esc(s ? s.name : h.code)}">${esc(s ? s.name : h.code)}</span></span>${s ? `<span class="badge ${status.key}">${status.label}</span>` : ""}</div>
-      <div class="meta"><span class="id">${esc(h.code)}${now != null ? `<span class="price">${money(h.market, now)}</span>` : ""}${s && s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
-      <div class="alerts">${crossBadges(h.market, h.code)}</div>
-      ${s ? `<div class="next">${holdNext(h.market, s, status)}</div>${s.o ? weekChart(s, data.signal, { marks: true }) : ""}` : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
-    </a>
-    <button type="button" class="star drop" data-hold-market="${h.market}" data-code="${esc(h.code)}" aria-label="持ち株から外す">×</button>
-  </div>`;
-}
+// 持ち株のカードは、抜けたばかりの銘柄を先に並べる（その中では足した順）
 function renderHold() {
-  // 抜けたばかりの銘柄を先に、その中では気にした方がいい状態を先に並べる
-  const rows = holds.map((h) => ({ h, status: holdStatus(holdData(h.market).stocks[h.code]), crossed: freshCrosses(h.market, h.code).length > 0 }))
-    .sort((a, b) => b.crossed - a.crossed || a.status.rank - b.status.rank);
-  const counts = {};
+  const rows = holds.map((h) => ({ h, crossed: freshCrosses(h.market, h.code).length > 0 }))
+    .sort((a, b) => b.crossed - a.crossed);
   const crossed = rows.filter((r) => r.crossed).length;
-  if (crossed) counts["平均線の抜け"] = crossed;
-  rows.forEach((r) => { counts[r.status.label] = (counts[r.status.label] || 0) + 1; });
   document.getElementById("holdhead").innerHTML = holds.length
-    ? `<strong>${holds.length}銘柄</strong>${Object.entries(counts).map(([label, n]) => `${label} ${n}`).join("・")}`
+    ? `<strong>${holds.length}銘柄</strong>${crossed ? `平均線の抜け ${crossed}` : "抜けたばかりの銘柄はありません"}`
     : "";
   document.getElementById("holdgrid").innerHTML = holds.length
-    ? rows.map((r) => holdCard(r.h)).join("")
+    ? rows.map((r) => ownCard(r.h.market, r.h.code, { drop: true })).join("")
     : `<p class="empty">持っている銘柄のコードを入れて「足す」を押すと、ここに並びます。</p>`;
   document.getElementById("sendhold").hidden = !holds.length;
   document.getElementById("holdnotice").textContent = holdNotice;
@@ -558,7 +480,7 @@ function toggleFav(market, code) {
 
 function chart(s) {
   const W = 320, H = 180, P = 6, n = s.c.length;
-  const values = [...s.h, ...s.l, ...s.maS, ...s.maM, ...s.maL].filter((v) => v != null);
+  const values = [...s.h, ...s.l, ...s.c, ...s.maS, ...s.maM, ...s.maL].filter((v) => v != null);
   const max = Math.max(...values), min = Math.min(...values);
   const span = max - min || 1;
   const step = W / n, body = Math.max(1, step * 0.62);
@@ -585,35 +507,42 @@ function chart(s) {
   </svg>`;
 }
 
-// カード。s は抜けの一覧の銘柄（その足のチャート）か、注目の銘柄（week に週足のチャート。株価が無ければチャート無し）。
-// opts.since が true なら（注目タブ）、☆を付けてからの値動きと、抜けの札を出す
+// カード。s は抜けの一覧の銘柄（チャートのデータ入り）か、持ち株・注目の銘柄（body にチャートか、チャートが無い理由）。
+// opts.own が true なら（持ち株・注目）抜けの札を出す。opts.since なら☆を付けてからの値動きを出す。
+// opts.drop なら、☆の代わりに持ち株から外す × を付ける
 function card(market, s, opts = {}) {
   const fav = favOf(market, s.code);
-  const live = Boolean(s.c || s.week);
-  const metaRight = live ? "" : market === "jp" ? "日本株" : "米国株";
   let since = "";
   const now = priceOf(market, s.code);
   if (opts.since && fav && fav.price && now) {
     const change = (now / fav.price - 1) * 100;
     since = `<div class="since">${esc(fav.from || fav.added)} に☆を付けてから <b class="${change >= 0.05 ? "gain" : change <= -0.05 ? "loss" : ""}">${pct(change)}</b></div>`;
   }
+  const button = opts.drop
+    ? `<button type="button" class="star drop" data-hold-market="${market}" data-code="${esc(s.code)}" aria-label="持ち株から外す">×</button>`
+    : `<button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${Boolean(fav)}" aria-label="${fav ? "注目から外す" : "注目に入れる"}">${fav ? "★" : "☆"}</button>`;
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
       <div class="top"><span class="nm"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span></div>
-      <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span><span class="off">${metaRight}</span></div>
+      <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
       ${since}
-      ${opts.since ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
-      ${live ? s.week || chart(s) : `<p class="gone">この銘柄の株価は、いま取れていません。</p>`}
+      ${opts.own ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
+      ${s.body ?? chart(s)}
     </a>
-    <button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${Boolean(fav)}" aria-label="${fav ? "注目から外す" : "注目に入れる"}">${fav ? "★" : "☆"}</button>
+    ${button}
   </div>`;
 }
-
-// 注目のカード。抜けの一覧にあるかどうかに関わらず、週足のチャートを出す（株価を取っていない銘柄は名前だけ）
-function favCard(f) {
-  const week = holdData(f.market), s = week.stocks[f.code];
-  if (!s || !s.o) return card(f.market, f, { since: true });
-  return card(f.market, { ...f, name: s.name, sector: s.sector, week: weekChart(s, week.signal) }, { since: true });
+// 持ち株・注目のカード。チャートは銘柄ごとのファイルから、いま選んでいる足のものを出す。
+// known は、ファイルが読めなくても分かっている名前と業種（注目は☆を付けたときのものを持っている）
+function ownCard(market, code, opts = {}, known = {}) {
+  const file = loadStock(market, code);
+  const loaded = file && file !== "loading";
+  const bars = loaded ? file[state.frame] : null;
+  const body = file === "loading" ? `<p class="gone">読み込み中…</p>`
+    : bars ? stockChart(bars, DATA[market].frames[state.frame].signal, FRAMES[state.frame].sizes)
+      : `<p class="gone">この銘柄の${loaded ? FRAMES[state.frame].name + "は、まだありません。" : "株価は、いま取れていません。"}</p>`;
+  const s = { code, name: (loaded && file.name) || known.name || code, sector: (loaded && file.sector) || known.sector || "", body };
+  return card(market, s, { ...opts, own: true });
 }
 
 function render() {
@@ -633,19 +562,14 @@ function render() {
   document.getElementById("transfer").hidden = !isFavTab;
   document.getElementById("send").hidden = !favs.length;
   document.getElementById("notice").textContent = notice;
-  document.getElementById("frames").hidden = isFavTab || isHold;
   document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
-  const lines = FRAMES[isFavTab ? "w" : state.frame].ma;
-  document.getElementById("legend").innerHTML = isHold
-    ? `<span><i class="k13"></i>13週線</span><span><i class="k26"></i>26週線</span><span><i class="k52"></i>52週線</span>`
-      + `<span><i class="klow"></i>山と谷</span><span><i class="klow" style="border-top-style:dashed;border-top-width:1px"></i>節目の株価</span>`
-      + `<span><i class="kband"></i>状態を決めた週</span>`
-    : `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
-      + `<span><i class="kband"></i>${isFavTab ? "取引が終わった直近の週" : "抜けた足"}</span>`;
+  const lines = FRAMES[state.frame].ma;
+  document.getElementById("legend").innerHTML =
+    `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
+    + `<span><i class="kband"></i>${isFavTab || isHold ? "取引が終わった直近の足" : "抜けた足"}</span>`;
 
   if (isHold) {
-    const bars = [...new Set(holds.map((h) => holdData(h.market).bar).filter(Boolean))];
-    sub.textContent = "持っている銘柄の、いまの状態" + (bars.length ? `（${bars.join("・")}の週足まで）` : "（週足）");
+    sub.textContent = `持っている銘柄（${FRAMES[state.frame].name}）`;
     head.innerHTML = "";
     grid.innerHTML = "";
     document.getElementById("more").hidden = true;
@@ -654,11 +578,11 @@ function render() {
   }
 
   if (isFavTab) {
-    sub.textContent = "☆を付けた注目の銘柄（新しく付けた順）";
+    sub.textContent = `☆を付けた注目の銘柄（新しく付けた順・${FRAMES[state.frame].name}）`;
     const crossed = favs.filter((f) => freshCrosses(f.market, f.code).length).length;
     head.innerHTML = favs.length ? `<strong>${favs.length}銘柄</strong>注目中${crossed ? `・平均線の抜け ${crossed}` : ""}` : "";
     grid.innerHTML = favs.length
-      ? favs.map((f) => favCard(f)).join("")
+      ? favs.map((f) => ownCard(f.market, f.code, { since: true }, f)).join("")
       : `<p class="empty">カードの☆を押すと、ここに残せます。</p>`;
     document.getElementById("more").hidden = true;
     return;

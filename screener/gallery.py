@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import breakdown, cross, jpx, prices, published
+from . import cross, jpx, prices, published
 
 # チャートに描く足の本数
 CHART_BARS = 52
@@ -25,8 +25,6 @@ FRAMES = {
     "w": {"label": "週足", "ma": (13, 26, 52)},
     "m": {"label": "月足", "ma": (12, 24, 60)},
 }
-# 持ち株タブで、週足の山・谷に数える上げ下げの大きさ（これより小さい上げ下げは数えない）
-HOLD_SWING = 0.07
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 # 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
@@ -49,9 +47,11 @@ INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 MIN_MARKET_CAP = {"jp": 3e10, "us": 1e9}
 # 株価の下限（日本株は100円、米国株は5ドル）。株価が低いと1円の動きが大きな%になる
 MIN_PRICE = {"jp": 100, "us": 5}
-# 持ち株タブ用に株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
-# 持っている銘柄が一覧の下限より小さくても状態を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
+# 株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
+# 持ち株や注目の銘柄が一覧の下限より小さくてもチャートと抜けの札を出せるよう、一覧より広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
+# 銘柄ごとのチャートのファイルを置くフォルダ（ページと同じ場所の下。その下に市場ごとのフォルダ）
+STOCK_DIR = "s"
 # 1日の売買代金（終値 × 出来高）の下限（日本株は1億円、米国株は500万ドル）。直近 TURNOVER_DAYS 日の中央値で見る。
 # ふだんほとんど売買の無い銘柄を外す。平均でなく中央値にするのは、出来高が跳ねた数日だけで通らないようにするため
 MIN_TURNOVER = {"jp": 1e8, "us": 5e6}
@@ -86,7 +86,7 @@ def _round(value):
 
 def _permille(ratio):
     """比（0.012 なら 12）を千分率の整数にする。値が無い足は None"""
-    return [None if np.isnan(v) else int(round(v * 1000)) for v in ratio]
+    return [None if not np.isfinite(v) else int(round(v * 1000)) for v in ratio]
 
 
 def _fill_live_close(bars, price):
@@ -155,61 +155,60 @@ def _frame(frame, market, info, bars, listed):
         stocks = [stock(symbol, row) for symbol, row in rows.iterrows() if found.get(symbol) == (direction, 0)]
         return {"count": len(stocks), "stocks": stocks}
 
-    return {"bar": BAR_NAME[frame].format(shown[at]), "up": side(1), "down": side(-1)}, found
+    return {"bar": BAR_NAME[frame].format(shown[at]), "signal": signal, "up": side(1), "down": side(-1)}, found
 
 
-def _holdings(market, info, bars):
-    """持ち株と注目のカード用に、株価を取った全銘柄の週足のローソク足と、いまの状態（breakdown.state）を作る。
+def _stock_files(info, frames, folder):
+    """持ち株と注目のカード用に、株価を取った全銘柄のチャートを、銘柄ごとのファイル（コード.json）に書き出す。
 
-    ページで登録した銘柄だけを出すが、どの銘柄が登録されるかはページを作る側では分からないので、全銘柄ぶん持たせる。
+    どの銘柄が登録されるかはページを作る側では分からない。全銘柄ぶんをページに埋め込むと重いので、
+    ファイルを分けて、ページが要る銘柄だけ読みに行く。frames は {足の種類: ローソク足の表}。
+    ファイルの中身は {name, sector, 足の種類: {c, p, o, h, l}}。c はチャートに描く終値、p はそれより前の終値（移動平均を描くのに使う）。
+    o・h・l は終値からのずれを千分率で持つ（ファイルを軽くするため）:
+    始値は終値から、高値は始値と終値の高い方から上へ、安値は低い方から下へ。
     """
-    close = bars["close"]
-    shown = close.index[-CHART_BARS:]
-    at = -1 if _bar_done(shown[-1], "w", market) else -2
-    done = len(close) + at + 1           # 取引が終わった足の数。状態はここまでで決める
-    first = len(close) - len(shown)      # チャートの左端の足が、全体の何本目か
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob("*.json"):  # 上場をやめた銘柄のファイルを残さない
+        old.unlink()
     stocks = {}
-    for symbol in close.columns.intersection(info.index):
-        values = close[symbol].to_numpy(dtype=float)
-        if np.isnan(values[first:]).all():
-            continue
-        o, h, low = (bars[key][symbol].to_numpy(dtype=float)[first:] for key in ["open", "high", "low"])
-        c = values[first:]
-        state = breakdown.state(values[:done], HOLD_SWING)
+    for frame, bars in frames.items():
+        close = bars["close"]
+        first = max(0, len(close) - CHART_BARS)
+        before = max(0, first - max(FRAMES[frame]["ma"]))
+        tables = {key: bars[key].to_numpy(dtype=float) for key in ["open", "high", "low", "close"]}
+        for column, symbol in enumerate(close.columns):
+            if symbol not in info.index:
+                continue
+            o, h, low, c = (tables[key][first:, column] for key in ["open", "high", "low", "close"])
+            if np.isnan(c).all():
+                continue
+            with np.errstate(invalid="ignore", divide="ignore"):
+                stocks.setdefault(symbol, {})[frame] = {
+                    "c": [_round(v) for v in c],
+                    "p": [_round(v) for v in tables["close"][before:first, column]],
+                    "o": _permille(o / c - 1),
+                    "h": _permille(h / np.maximum(o, c) - 1),
+                    "l": _permille(1 - low / np.minimum(o, c)),
+                }
+    for symbol, charts in stocks.items():
         row = info.loc[symbol]
-        stocks[row["code"]] = {
-            "name": row["name"] or row["code"],
-            "sector": "" if pd.isna(row["sector"]) else row["sector"],
-            "c": [_round(v) for v in values[first:]],
-            # p はチャートより前の終値（移動平均を描くのに使う）。o・h・l は終値からのずれを千分率で持つ（ページを軽くするため）:
-            # 始値は終値から、高値は始値と終値の高い方から上へ、安値は低い方から下へ
-            "p": [_round(v) for v in values[max(0, first - max(FRAMES["w"]["ma"])):first]],
-            "o": _permille(o / c - 1),
-            "h": _permille(h / np.maximum(o, c) - 1),
-            "l": _permille(1 - low / np.minimum(o, c)),
-            "trend": state["trend"],
-            "ago": None if state["since"] is None else done - 1 - state["since"],  # いまの向きになって何本たったか
-            "flipped": state["flipped"],
-            "warn": state["warn"],
-            "level": _round(state["level"]) if state["level"] is not None else None,
-            "range": [_round(v) for v in state["range"]] if state["range"] else None,  # 横ばいの [下限, 上限]
-            # チャートに収まる山と谷の [左から何本目か, 終値, 山なら1]
-            "pivots": [[i - first, _round(value), int(high)] for i, value, high in state["pivots"] if i >= first],
-        }
-    return {"bar": BAR_NAME["w"].format(shown[at]), "signal": len(shown) + at, "stocks": stocks}
+        data = {"name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"], **charts}
+        (folder / f"{row['code']}.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return len(stocks)
 
 
 def _prices(info, daily):
     """注目の銘柄の「☆を付けてからの値動き」用の、全銘柄の今の株価。
 
-    株価を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる
+    株価を取っていない銘柄（時価総額が下限を割った銘柄など）も、スクリーナーの株価で埋まる。
+    ページは、持ち株に足すコードがあるかどうかも、この表で確かめる
     """
     close = daily["close"].iloc[-1].reindex(info.index).fillna(info["price"]).dropna()
     return {info.at[symbol, "code"]: round(float(value), 2) for symbol, value in close.items()}
 
 
-def _build(market, log):
-    """1つの市場の株価を取り直して、ページに載せるデータを作る"""
+def _build(market, log, site):
+    """1つの市場の株価を取り直して、ページに載せるデータを作る。銘柄ごとのチャートのファイルは site の下に書き出す"""
     info = INFO[market](log)
     # 株価は、持ち株タブと抜けの札のために、一覧より広く取る。一覧には、その中の時価総額・株価・売買代金の下限以上の銘柄だけ載せる
     wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
@@ -229,8 +228,10 @@ def _build(market, log):
         for symbol, last in found.items():
             if symbol in info.index:
                 crosses.setdefault(info.at[symbol, "code"], {})[frame] = list(last)
+    count = _stock_files(info, {"d": daily, "w": weekly, "m": monthly}, site / STOCK_DIR / market)
+    log(f"{market}: 銘柄ごとのチャートのファイルを {count:,} 個書き出しました")
     # cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き, 何本前か]}}。持ち株と注目のカードの札に使う
-    return {"frames": frames, "hold": _holdings(market, info, weekly), "cross": crosses, "prices": _prices(info, daily)}
+    return {"frames": frames, "cross": crosses, "prices": _prices(info, daily)}
 
 
 def _published(log):
@@ -238,7 +239,8 @@ def _published(log):
     try:
         data = json.loads(published.payload())
         return {market: value for market, value in data.items()
-                if set(value.get("frames", {})) == set(FRAMES) and "hold" in value and "cross" in value}
+                if set(value.get("frames", {})) == set(FRAMES) and "cross" in value
+                and all("signal" in frame for frame in value["frames"].values())}
     except Exception as error:
         log(f"公開中のページのデータは使えません（{error}）")
         return {}
@@ -257,7 +259,7 @@ def main():
     data = {}
     for market in ["jp", "us"]:
         if args.markets in ("both", market) or market not in keep:
-            data[market] = _build(market, print)
+            data[market] = _build(market, print, out.parent)
         else:
             print(f"{market}: 公開中のページのデータを使います")
             data[market] = keep[market]
@@ -269,7 +271,6 @@ def main():
         for frame, result in data[market]["frames"].items():
             print(f"{label} {FRAMES[frame]['label']}（{result['bar']}）: "
                   f"上抜け {result['up']['count']} 銘柄、下抜け {result['down']['count']} 銘柄")
-        print(f"{label} 持ち株タブ用: {len(data[market]['hold']['stocks']):,} 銘柄")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

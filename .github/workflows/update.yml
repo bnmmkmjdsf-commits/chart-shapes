@@ -34,6 +34,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # 公開中のページを site に取ってくる。銘柄ごとのチャートのファイル（site/s/市場/）は、取り直さない方の市場のぶんを
+      # そのまま引き継ぐ（株価を取り直した市場のぶんだけ、ページを作る処理が入れ替える）。初めてのときは空で始める
+      - name: 公開中のページを取ってくる
+        run: |
+          git clone -q --depth 1 -b gh-pages "https://github.com/${GITHUB_REPOSITORY}.git" site || mkdir -p site
+          rm -rf site/.git
       # 定期実行では inputs.reuse_data は空なので、いつも株価を取り直す
       - if: ${{ !inputs.reuse_data }}
         run: pip install -r requirements.txt
@@ -62,6 +68,6 @@ jobs:
           git init -q -b gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html .nojekyll
+          git add -A
           git commit -q -m "チャート一覧を更新 $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
