@@ -93,7 +93,7 @@ def fetch_jp_quotes(log=print):
 
 
 def fetch_bars(symbols, interval, period, label, log=print, chunk=500):
-    """ローソク足（interval は "1d"・"1wk"・"1mo"）を period の期間ぶん取る。
+    """ローソク足（interval は "1h"・"1d"・"1wk"・"1mo"）を period の期間ぶん取る。
     open / high / low / close / volume の表（行が足、列が銘柄）を返す。
 
     株式分割は調整済み、配当は未調整（証券会社アプリのチャートと同じ値になる）。途中の足（今日・今週・今月）も含む。
@@ -118,6 +118,7 @@ BAR_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volum
 
 def align_bars(bars, interval):
     """足の行を、その足の始まりの日付（日足はその日、週足は月曜、月足は1日。時刻は0時）にそろえる。
+    1時間足は、その市場の時刻のまま（時間帯の情報だけ外す）で、日付にはそろえない。
 
     Yahoo はまれに一部の銘柄だけ足の途中の日付で別の行を返す。また途中の足を
     「始まりの日の0時の空の行」と「取引時刻の行」の2行で返すことがある。そのままだと空の行ができて
@@ -128,7 +129,7 @@ def align_bars(bars, interval):
         index = table.index
         if index.tz is not None:
             index = index.tz_localize(None)
-        start = index.normalize()
+        start = index if interval == "1h" else index.normalize()
         if interval == "1wk":
             start = start - pd.to_timedelta(start.weekday, unit="D")
         elif interval == "1mo":

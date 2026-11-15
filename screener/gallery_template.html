@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場（日本株・米国株・★注目・持ち株）の切り替えと、その右に足（日足・週足・月足）と向き（上抜け・下抜け）の切り替え（狭い画面では下の段に回る）
+/* レイアウト: 見出し → 市場（日本株・米国株・★注目・持ち株）の切り替えと、その右に足（1時間足・日足・週足・月足）と向き（上抜け・下抜け）の切り替え（狭い画面では下の段に回る）
    → 線の凡例 → チャートのカード（スマホは1列、広い画面は3列まで） */
 :root {
   --bg: #f3f5f9;
@@ -228,6 +228,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
 
   <div class="market" id="frames" role="tablist" aria-label="足の種類">
+    <button type="button" role="tab" data-frame="h" aria-selected="false">1時間</button>
     <button type="button" role="tab" data-frame="d" aria-selected="false">日足</button>
     <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
     <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
@@ -271,6 +272,7 @@ const STEP = 20;
 const state = { market: "jp", frame: "w", kind: "up", shown: STEP };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
+  h: { name: "1時間足", ma: ["25本線", "75本線", "200本線"], sizes: [25, 75, 200], ago: "本前" },
   d: { name: "日足", ma: ["5日線", "25日線", "75日線"], sizes: [5, 25, 75], ago: "日前" },
   w: { name: "週足", ma: ["13週線", "26週線", "52週線"], sizes: [13, 26, 52], ago: "週前" },
   m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], sizes: [12, 24, 60], ago: "か月前" },
@@ -294,7 +296,7 @@ const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getD
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // ☆を付けるときに、名前と業種を引くための銘柄（抜けの一覧のどこかにある）
 function findStock(market, code) {
-  for (const frame of ["d", "w", "m"]) {
+  for (const frame of ["h", "d", "w", "m"]) {
     for (const kind of ["up", "down"]) {
       const s = DATA[market].frames[frame][kind].stocks.find((x) => x.code === code);
       if (s) return s;
@@ -304,10 +306,10 @@ function findStock(market, code) {
 }
 // 抜けの札。日足・週足・月足のそれぞれで、短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
 // DATA[市場].cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き（上抜けが1）, 何本前か]}}
-const FRESH = { d: 2, w: 1, m: 0 };
+const FRESH = { h: 6, d: 2, w: 1, m: 0 };
 function freshCrosses(market, code) {
   const found = (DATA[market].cross || {})[code] || {};
-  return ["d", "w", "m"].filter((f) => found[f] && found[f][1] <= FRESH[f])
+  return ["h", "d", "w", "m"].filter((f) => found[f] && found[f][1] <= FRESH[f])
     .map((f) => ({ frame: f, up: found[f][0] > 0, ago: found[f][1] }));
 }
 const crossBadges = (market, code) => freshCrosses(market, code).map((c) =>

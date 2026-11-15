@@ -1,4 +1,4 @@
-"""日足・週足・月足で短期の移動平均線が中期線を上に抜けた・下に抜けた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
+"""1時間足・日足・週足・月足で短期の移動平均線が中期線を上に抜けた・下に抜けた銘柄を、日米それぞれチャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取って作る。GitHub Actions で平日に動かし、GitHub Pages で公開している。
 
@@ -21,6 +21,7 @@ from . import cross, jpx, prices, published
 CHART_BARS = 52
 # 足の種類ごとの、チャートに描く移動平均の本数（短期・中期・長期）。抜けは、短期線と中期線で見る
 FRAMES = {
+    "h": {"label": "1時間足", "ma": (25, 75, 200)},
     "d": {"label": "日足", "ma": (5, 25, 75)},
     "w": {"label": "週足", "ma": (13, 26, 52)},
     "m": {"label": "月足", "ma": (12, 24, 60)},
@@ -107,9 +108,11 @@ MARKET_CLOSE = {"jp": ("Asia/Tokyo", 15, 30), "us": ("America/New_York", 16, 0)}
 def _bar_done(start, frame, market):
     """その足（start は足の始まりの日付）の取引が終わったか。祝日は見ない。
 
-    日足はその日の大引け、週足は金曜の大引け、月足は翌月に入ったら、終わったとみなす。
+    1時間足は始まりから1時間たったら、日足はその日の大引け、週足は金曜の大引け、月足は翌月に入ったら、終わったとみなす。
     """
     tz, hour, minute = MARKET_CLOSE[market]
+    if frame == "h":
+        return pd.Timestamp.now(tz) >= start.tz_localize(tz) + pd.Timedelta(hours=1)
     day = pd.Timestamp(start.date()).tz_localize(tz)
     close_time = pd.Timedelta(hours=hour, minutes=minute)
     end = {"d": day + close_time,
@@ -118,7 +121,7 @@ def _bar_done(start, frame, market):
     return pd.Timestamp.now(tz) >= end
 
 
-BAR_NAME = {"d": "{:%Y/%m/%d}", "w": "{:%Y/%m/%d} の週", "m": "{:%Y/%m}"}
+BAR_NAME = {"h": "{:%m/%d %H:%M}", "d": "{:%Y/%m/%d}", "w": "{:%Y/%m/%d} の週", "m": "{:%Y/%m}"}
 
 
 def _frame(frame, market, info, bars, listed):
@@ -216,18 +219,20 @@ def _build(market, log, site):
     weekly = prices.to_weekly(daily)  # 週足は日足から作る（別に取らない）
     log(f"{market}: 月足を取得中...")
     monthly = prices.fetch_bars(wide, "1mo", "10y", "月足", log)  # 60か月線を描くので長く取る
+    log(f"{market}: 1時間足を取得中...")
+    hourly = prices.fetch_bars(wide, "1h", "3mo", "1時間足", log)  # 200本線を描くので長く取る（1日に7本ほど）
     priced = info.index[info["price"] >= MIN_PRICE[market]]
     turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().reindex(priced).dropna()
     listed = turnover.nlargest(TOP_COUNT).index.tolist()
     log(f"{market}: 一覧に載せるのは、売買代金の大きい順に {len(listed):,} 銘柄"
         f"（{TOP_COUNT} 番目の売買代金は1日 {turnover.nlargest(TOP_COUNT).iloc[-1]:,.0f}）")
     frames, crosses = {}, {}
-    for frame, bars in [("d", daily), ("w", weekly), ("m", monthly)]:
+    for frame, bars in [("h", hourly), ("d", daily), ("w", weekly), ("m", monthly)]:
         frames[frame], found = _frame(frame, market, info, bars, listed)
         for symbol, last in found.items():
             if symbol in info.index:
                 crosses.setdefault(info.at[symbol, "code"], {})[frame] = list(last)
-    count = _stock_files(info, {"d": daily, "w": weekly, "m": monthly}, site / STOCK_DIR / market)
+    count = _stock_files(info, {"h": hourly, "d": daily, "w": weekly, "m": monthly}, site / STOCK_DIR / market)
     log(f"{market}: 銘柄ごとのチャートのファイルを {count:,} 個書き出しました")
     # cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き, 何本前か]}}。持ち株と注目のカードの札に使う
     return {"frames": frames, "cross": crosses, "prices": _prices(info, daily)}
