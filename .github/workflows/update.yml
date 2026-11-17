@@ -24,6 +24,10 @@ on:
         type: choice
         options: [both, jp, us]
         default: both
+      notify_now:
+        description: 週足の抜けを、今すぐ LINE に送る（試し用。もう知らせた週でも送る）
+        type: boolean
+        default: false
 
 permissions:
   contents: write             # 作ったページを gh-pages ブランチに置くため
@@ -58,6 +62,15 @@ jobs:
         run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS" $HOURLY   # -u: 進み具合をその場でログに出す
       - if: ${{ inputs.reuse_data }}
         run: python -m screener.retemplate --out site/index.html
+      # 週足の抜けを LINE に知らせる。日米とも同じ週の足が終わっていて、まだ知らせていない週のときだけ送るので、
+      # 毎回動かしてよい（送るのは週に1回、ふつうは土曜の朝の米国株の更新のとき）。知らせた週は site/notified.json に残り、
+      # 下の公開で gh-pages に載る。LINE_TOKEN が無ければ何もしない。送れなくても、ページの公開は続ける
+      - name: 週足の抜けを LINE に知らせる
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+        run: python -m screener.notify --page site/index.html ${{ inputs.notify_now && '--force' || '' }}
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
       # main 以外では公開せず、作ったページを Actions の成果物として残す（gh run download で取れる）

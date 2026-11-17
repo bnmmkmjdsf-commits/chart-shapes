@@ -5,8 +5,12 @@ import urllib.request
 PAGE_URL = "https://bnmmkmjdsf-commits.github.io/chart-shapes/"
 
 
-def payload():
-    """テンプレートの「const DATA = __DATA__;」に入っている JSON を、文字列のまま返す"""
-    with urllib.request.urlopen(PAGE_URL, timeout=60) as res:
-        page = res.read().decode("utf-8")
+def extract(page):
+    """ページの文字列から、テンプレートの「const DATA = __DATA__;」に入っている JSON を、文字列のまま返す"""
     return re.search(r"const DATA = (.*?);\nconst STEP", page, re.S).group(1)
+
+
+def payload():
+    """公開中のページに入っている JSON を、文字列のまま返す"""
+    with urllib.request.urlopen(PAGE_URL, timeout=60) as res:
+        return extract(res.read().decode("utf-8"))
