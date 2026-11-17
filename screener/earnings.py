@@ -3,8 +3,14 @@
 決算速報の見出し（例:「タングス、今期経常を一転2.2倍増益に上方修正・5期ぶり最高益、配当も50円増額」）だけを見る。
 点数は「最高益」3点、「上方修正」2点、「増配・増額」1点、「7-9月期も増益」のような直近の四半期の伸び1点。
 点数が同じなら、増益率か上方修正の幅の大きい方を上にする。減益・下方修正・赤字の見出しは外す。
-株探の非公式な読み取りなので、ページの作りが変わると取れなくなる。取れないときは業績タブを空にして、ほかは止めない。
+株探は GitHub Actions（クラウドのサーバー）からのアクセスを断る（HTTP 405）ので、読むのは別の場所（Claude のセッションや手元のパソコン）で
+`python -m screener.earnings` を動かし、結果の earnings.json をリポジトリに push する。毎日の更新（gallery.py）は、その earnings.json を読むだけ。
+earnings.json が無い・古いときは、業績タブを空にして、ほかは止めない。
 """
+import argparse
+import json
+from pathlib import Path
+
 import html
 import re
 import time
@@ -13,6 +19,7 @@ import urllib.request
 import numpy as np
 import pandas as pd
 
+SAVED = Path(__file__).resolve().parent.parent / "earnings.json"
 NEWS_URL = "https://kabutan.jp/news/?date={month}&page={page}"
 # 何日前までの決算を見るか。決算シーズンをまたいでも、ひと月半ほどは残す
 DAYS = 45
@@ -34,8 +41,12 @@ def _page(month, page):
         return res.read().decode("utf-8", "ignore")
 
 
-def headlines(log=print, days=DAYS):
-    """直近 days 日の決算速報の見出し [{code, date, title}]（新しい順）"""
+def headlines(log=print, days=DAYS, known=()):
+    """直近 days 日の決算速報の見出し [{id, code, at, date, title}]（新しい順）。
+
+    known は前に読んだ見出しの id。そこまで来たら、それより古いページは読まない（前回の続きだけ読む）。
+    """
+    known = set(known)
     now = pd.Timestamp.now("Asia/Tokyo")
     since = now - pd.Timedelta(days=days)
     months = sorted({f"{d:%Y%m}00" for d in pd.date_range(since.normalize(), now.normalize(), freq="D")}, reverse=True)
@@ -54,14 +65,17 @@ def headlines(log=print, days=DAYS):
                     continue
                 found += 1
                 when = pd.Timestamp(at.group(1))
-                if when < since:
+                if when < since or title.group(1) in known:
                     old += 1
                     continue
-                out.append({"code": code.group(1), "date": f"{when:%m/%d}", "title": html.unescape(title.group(2)).strip()})
+                out.append({"id": title.group(1), "code": code.group(1), "at": when.isoformat(),
+                            "date": f"{when:%m/%d}", "title": html.unescape(title.group(2)).strip()})
             time.sleep(WAIT)
-            if not found or old:  # 最後のページを過ぎたか、見る期間より古くなった
+            if not found or old:  # 最後のページを過ぎたか、見る期間より古くなったか、前回読んだところまで来た
                 break
         log(f"  株探 {month[:4]}/{month[4:6]}: ここまで {len(out):,} 件")
+        if old:
+            break
     return out
 
 
@@ -109,7 +123,8 @@ def strong(items):
         if item["code"] not in best or key > best[item["code"]][0]:
             best[item["code"]] = (key, item)
     ranked = sorted(best.values(), key=lambda v: v[0], reverse=True)
-    return [{**item, "score": key[0], "rate": round(key[1])} for key, item in ranked]
+    return [{"id": item["id"], "code": item["code"], "at": item["at"], "date": item["date"], "title": item["title"],
+             "score": key[0], "rate": round(key[1])} for key, item in ranked]
 
 
 # チャートの形を見る期間。足の数を3つに区切り、区切りごとの高値・安値が切り上がっているか・下がっているかを見る
@@ -154,12 +169,7 @@ def build(info, frames, log=print):
     返すのは {"days": 見た日数, "stocks": [{code, name, sector, date, title, score, rate, shape: {d, w}, brk: {d, w}}]}。
     株探が読めないときは stocks が空。
     """
-    log("株探の決算速報を読んでいます...")
-    try:
-        ranked = strong(headlines(log))
-    except Exception as error:
-        log(f"株探が読めませんでした（{error}）。業績タブは空にします")
-        ranked = []
+    ranked = load(log)
     stocks = []
     for item in ranked:
         symbol = f"{item['code']}.T"
@@ -177,3 +187,41 @@ def build(info, frames, log=print):
                        "sector": "" if pd.isna(row["sector"]) else row["sector"], "shape": shapes, "brk": breaks})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日）")
     return {"days": DAYS, "stocks": stocks}
+
+
+def load(log=print):
+    """earnings.json の、直近 DAYS 日の業績の強い銘柄（強い順）。無い・読めないときは空"""
+    try:
+        saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    except Exception as error:
+        log(f"earnings.json が読めません（{error}）。業績タブは空にします")
+        return []
+    since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
+    stocks = [s for s in saved.get("stocks", []) if pd.Timestamp(s["at"]) >= since]
+    log(f"earnings.json（{saved.get('updated', '?')} に株探を読んだもの）: {len(stocks):,} 銘柄")
+    return stocks
+
+
+def update(log=print):
+    """株探の決算速報を読み、earnings.json を新しくする。前回の続きだけ読み、直近 DAYS 日より古い見出しは捨てる"""
+    try:
+        saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    except Exception:
+        saved = {}
+    since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
+    kept = [s for s in saved.get("stocks", []) if pd.Timestamp(s["at"]) >= since]
+    log("株探の決算速報を読んでいます...")
+    new = headlines(log, known=saved.get("seen", []))
+    if not new and not saved:
+        raise SystemExit("株探の決算速報が1件も読めませんでした（earnings.json はそのまま）")
+    # 新しい見出しと、前に残した強い見出しを合わせて、銘柄ごとにいちばん良いものを残す
+    ranked = strong(new + kept)
+    seen = [item["id"] for item in new[:50]] or saved.get("seen", [])
+    out = {"updated": f"{pd.Timestamp.now('Asia/Tokyo'):%Y-%m-%d %H:%M}", "days": DAYS, "seen": seen, "stocks": ranked}
+    SAVED.write_text(json.dumps(out, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
+    log(f"earnings.json を書きました: 新しい見出し {len(new):,} 件、業績の強い銘柄 {len(ranked):,}")
+
+
+if __name__ == "__main__":
+    argparse.ArgumentParser(description="株探の決算速報を読み、earnings.json を新しくする（GitHub Actions からは読めない）").parse_args()
+    update()
