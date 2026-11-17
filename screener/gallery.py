@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import cross, jpx, prices, published, watch
+from . import cross, earnings, jpx, prices, published, watch
 
 # チャートに描く足の本数
 CHART_BARS = 52
@@ -255,7 +255,11 @@ def _build(market, log, site):
     # top は、一覧に載せる銘柄の [銘柄, コード, 名前, 業種]（売買代金の大きい順）。取引時間中の更新（_hourly）が使う
     top = [[symbol, *("" if pd.isna(v) else v for v in info.loc[symbol, ["code", "name", "sector"]])]
            for symbol in listed if symbol in info.index]
-    return {"frames": frames, "cross": crosses, "top": top, "prices": _prices(info, daily)}
+    result = {"frames": frames, "cross": crosses, "top": top, "prices": _prices(info, daily)}
+    if market == "jp":
+        # 業績タブ（株探の決算速報で業績の強い銘柄を、日足・週足のチャートの形で分ける）
+        result["earn"] = earnings.build(info, {"d": daily, "w": weekly}, log)
+    return result
 
 
 def _hourly(market, data, log, site):
