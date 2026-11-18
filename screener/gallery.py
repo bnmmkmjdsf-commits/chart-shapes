@@ -78,6 +78,26 @@ def _jp_info(log):
 
 INFO = {"jp": _jp_info, "us": _us_info}
 
+# 株価の指数。個別銘柄と同じように、持ち株と注目のカードにチャートと抜けの札を出す（一覧の200銘柄には入れない）。
+# {表に出すコード: (Yahoo の記号, 名前, 業種欄の表示)}
+INDEXES = {"jp": {"N225": ("^N225", "日経平均", "指数")}, "us": {}}
+
+
+def _symbol(market, code):
+    """表に出すコードから、Yahoo の記号を引く（日本株は 7203 → 7203.T、指数は N225 → ^N225）"""
+    if code in INDEXES[market]:
+        return INDEXES[market][code][0]
+    return f"{code}.T" if market == "jp" else code
+
+
+def _with_indexes(market, info):
+    """銘柄の情報の表に、その市場の指数を足す。株価は日足から入れるので、ここでは空"""
+    rows = {symbol: {"code": code, "name": name, "sector": sector, "market_cap": np.nan, "price": np.nan}
+            for code, (symbol, name, sector) in INDEXES[market].items()}
+    if not rows:
+        return info
+    return pd.concat([info, pd.DataFrame.from_dict(rows, orient="index")[INFO_COLUMNS]])
+
 
 def _round(value):
     """チャート用に有効数字4桁へ丸める（ページを軽くするため）。値が無い足は None"""
@@ -227,9 +247,10 @@ def _prices(info, daily):
 
 def _build(market, log, site):
     """1つの市場の株価を取り直して、ページに載せるデータを作る。銘柄ごとのチャートのファイルは site の下に書き出す"""
-    info = INFO[market](log)
+    info = _with_indexes(market, INFO[market](log))
     # 株価は、持ち株と注目のチャートと抜けの札のために、一覧より広く取る。一覧には、その中の売買代金の大きい銘柄だけ載せる
     wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
+    wide += [symbol for symbol, _, _ in INDEXES[market].values()]  # 指数は時価総額も株価も無いので、決め打ちで入れる
     log(f"{market}: 株価を取るのは {len(wide):,} 銘柄。日足を取得中...")
     daily = prices.fetch_bars(wide, "1d", "2y", "日足", log)
     _fill_live_close(daily, info["price"])
@@ -272,7 +293,7 @@ def _hourly(market, data, log, site):
     rows = {symbol: {"code": code, "name": name, "sector": sector} for symbol, code, name, sector in data["top"]}
     listed = watch.shared(market)
     for code in [*listed["hold"], *(fav["code"] for fav in listed["fav"])]:
-        symbol = f"{code}.T" if market == "jp" else code
+        symbol = _symbol(market, code)
         file = folder / f"{code}.json"
         if symbol in rows or not file.exists():  # ファイルが無いのは、株価を取っていない銘柄（コードの間違いなど）
             continue

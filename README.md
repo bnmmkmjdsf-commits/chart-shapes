@@ -31,6 +31,8 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 
 ## 持ち株と注目（watch.json）
 
+日経平均（コード `N225`）は、注目に最初から入れてある。指数は `screener/gallery.py` の `INDEXES` に書くと、同じようにチャートと札が出る（一覧の200銘柄には入らない）。
+
 「持ち株」と「★ 注目」に出す銘柄は、リポジトリの `watch.json` に書く。ページがそれを読むので、どの端末で開いても同じ銘柄が出る。
 
 ```json
