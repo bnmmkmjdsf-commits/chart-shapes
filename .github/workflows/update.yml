@@ -9,6 +9,11 @@ on:
     # 株価が15〜20分遅れて届くので、1時間足が終わってから少し待つ
     - cron: "25 1-6 * * 1-5"    # 日本時間 月〜金 10:25〜15:25 → 日本株の1時間足
     - cron: "50 14-20 * * 1-5"  # 米国東部 月〜金 9:50〜15:50（夏時間は10:50〜16:50）→ 米国株の1時間足
+  # watch.json（持ち株と注目）を main で変えたら、株価は取り直さず、見た目だけ作り直す（20秒ほど）。
+  # 新しく足した銘柄のチャートは、次の更新から出る
+  push:
+    branches: [main]
+    paths: [watch.json]
   workflow_dispatch:          # Actions の画面から手動でも動かせる（main 以外のブランチでは公開せず、試し用に作るだけ）
     inputs:
       reuse_data:
@@ -48,15 +53,15 @@ jobs:
         run: |
           git clone -q --depth 1 -b gh-pages "https://github.com/${GITHUB_REPOSITORY}.git" site || mkdir -p site
           rm -rf site/.git
-      # 定期実行では inputs.reuse_data は空なので、いつも株価を取り直す
-      - if: ${{ !inputs.reuse_data }}
+      # 定期実行では inputs.reuse_data は空なので、いつも株価を取り直す（watch.json の変更で動いたときだけ取り直さない）
+      - if: ${{ !(inputs.reuse_data || github.event_name == 'push') }}
         run: pip install -r requirements.txt
-      - if: ${{ !inputs.reuse_data }}
+      - if: ${{ !(inputs.reuse_data || github.event_name == 'push') }}
         env:
           MARKETS: ${{ (github.event.schedule == '0 22 * * 1-5' || github.event.schedule == '50 14-20 * * 1-5') && 'us' || (github.event.schedule == '30 7 * * 1-5' || github.event.schedule == '25 1-6 * * 1-5') && 'jp' || inputs.markets || 'both' }}
           HOURLY: ${{ (github.event.schedule == '25 1-6 * * 1-5' || github.event.schedule == '50 14-20 * * 1-5' || inputs.hourly) && '--hourly' || '' }}
         run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS" $HOURLY   # -u: 進み具合をその場でログに出す
-      - if: ${{ inputs.reuse_data }}
+      - if: ${{ inputs.reuse_data || github.event_name == 'push' }}
         run: python -m screener.retemplate --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
