@@ -127,6 +127,28 @@ def strong(items):
              "score": key[0], "rate": round(key[1])} for key, item in ranked]
 
 
+# 業績の悪い見出し（減益・下方修正・赤字・減額・減配）。業績が悪いのに株価が上がっている銘柄を探すのに使う
+WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
+# 業績が悪いのに株価が上がったとみなす、決算の発表からの上昇率（%）
+WEAK_MIN_MOVE = 5.0
+
+
+def weak(items):
+    """業績の悪い見出しを、銘柄ごとにいちばん新しいものだけ残す [{id, code, at, date, title}]。同じ銘柄に、それより新しい強い見出しがあれば外す"""
+    latest, strong_at = {}, {}
+    for item in items:
+        main = item["title"].split("・")[0]
+        if score(item["title"]) is None and WEAK.search(main):
+            if item["code"] not in latest or item["at"] > latest[item["code"]]["at"]:
+                latest[item["code"]] = item
+        else:
+            result = score(item["title"])
+            if result and result[0] >= MIN_SCORE:
+                strong_at[item["code"]] = max(strong_at.get(item["code"], ""), item["at"])
+    return [{k: v[k] for k in ("id", "code", "at", "date", "title")} for v in latest.values()
+            if v["at"] > strong_at.get(v["code"], "")]
+
+
 # チャートの形を見る期間。足の数を3つに区切り、区切りごとの高値・安値が切り上がっているか・下がっているかを見る
 SHAPE_BARS = {"d": 60, "w": 30}
 # 区切りごとの高値・安値のぶれがこの割合以内なら、レンジ
@@ -202,7 +224,21 @@ def build(info, frames, log=print):
         stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"], "shape": shapes, "brk": breaks})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日）")
-    return {"days": DAYS, "stocks": stocks}
+    # 業績が悪いのに、決算の発表から株価が上がっている銘柄（上がった順）
+    weak_stocks = []
+    for item in load_weak(log):
+        symbol = f"{item['code']}.T"
+        if symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
+            continue
+        move = move_since(item["at"], frames["d"]["close"][symbol])
+        if move is None or move < WEAK_MIN_MOVE:
+            continue
+        row = info.loc[symbol]
+        weak_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
+                            "sector": "" if pd.isna(row["sector"]) else row["sector"]})
+    weak_stocks.sort(key=lambda s: s["move"], reverse=True)
+    log(f"業績悪・株価高: {len(weak_stocks):,} 銘柄（発表から +{WEAK_MIN_MOVE:g}% 以上）")
+    return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
 
 
 def load(log=print):
@@ -218,7 +254,17 @@ def load(log=print):
     return stocks
 
 
-def update(log=print):
+def load_weak(log=print):
+    """earnings.json の、直近 DAYS 日の業績の悪い銘柄。無い・読めないときは空"""
+    try:
+        saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
+    return [s for s in saved.get("weak", []) if pd.Timestamp(s["at"]) >= since]
+
+
+def update(log=print, full=False):
     """株探の決算速報を読み、earnings.json を新しくする。前回の続きだけ読み、直近 DAYS 日より古い見出しは捨てる"""
     try:
         saved = json.loads(SAVED.read_text(encoding="utf-8"))
@@ -227,17 +273,20 @@ def update(log=print):
     since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
     kept = [s for s in saved.get("stocks", []) if pd.Timestamp(s["at"]) >= since]
     log("株探の決算速報を読んでいます...")
-    new = headlines(log, known=saved.get("seen", []))
+    new = headlines(log, known=[] if full else saved.get("seen", []))
     if not new and not saved:
         raise SystemExit("株探の決算速報が1件も読めませんでした（earnings.json はそのまま）")
     # 新しい見出しと、前に残した強い見出しを合わせて、銘柄ごとにいちばん良いものを残す
+    kept_weak = [s for s in saved.get("weak", []) if pd.Timestamp(s["at"]) >= since]
     ranked = strong(new + kept)
+    weak_items = weak(new + kept_weak + kept)
     seen = [item["id"] for item in new[:50]] or saved.get("seen", [])
-    out = {"updated": f"{pd.Timestamp.now('Asia/Tokyo'):%Y-%m-%d %H:%M}", "days": DAYS, "seen": seen, "stocks": ranked}
+    out = {"updated": f"{pd.Timestamp.now('Asia/Tokyo'):%Y-%m-%d %H:%M}", "days": DAYS, "seen": seen, "stocks": ranked, "weak": weak_items}
     SAVED.write_text(json.dumps(out, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
-    log(f"earnings.json を書きました: 新しい見出し {len(new):,} 件、業績の強い銘柄 {len(ranked):,}")
+    log(f"earnings.json を書きました: 新しい見出し {len(new):,} 件、業績の強い銘柄 {len(ranked):,}、業績の悪い銘柄 {len(weak_items):,}")
 
 
 if __name__ == "__main__":
-    argparse.ArgumentParser(description="株探の決算速報を読み、earnings.json を新しくする（GitHub Actions からは読めない）").parse_args()
-    update()
+    parser = argparse.ArgumentParser(description="株探の決算速報を読み、earnings.json を新しくする（GitHub Actions からは読めない）")
+    parser.add_argument("--full", action="store_true", help="前回の続きではなく、直近 DAYS 日ぶんを全部読み直す")
+    update(full=parser.parse_args().full)

@@ -266,6 +266,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" data-shape="range" aria-selected="false">レンジ</button>
     <button type="button" role="tab" data-shape="turn" aria-selected="false">転換中</button>
     <button type="button" role="tab" data-shape="down" aria-selected="false">下降</button>
+    <button type="button" role="tab" data-shape="weak" aria-selected="false">業績悪・株価高</button>
   </div>
   <div class="market" id="kinds" role="tablist" aria-label="抜けた向き">
     <button type="button" role="tab" data-kind="up" aria-selected="true">上抜け</button>
@@ -345,10 +346,12 @@ function findStock(market, code) {
 // shape・brk は {d: 日足, w: 週足} ごとのチャートの形と、レンジを上に抜けたか
 const EARN = (DATA.jp.earn && DATA.jp.earn.stocks) || [];
 const earnOf = (market, code) => (market === "jp" ? EARN.find((s) => s.code === code) || null : null);
-const SHAPES = { brk: "レンジ上抜け", up: "上昇", range: "レンジ", turn: "転換中", down: "下降" };
+const SHAPES = { brk: "レンジ上抜け", up: "上昇", range: "レンジ", turn: "転換中", down: "下降", weak: "業績悪・株価高" };
+// 業績が悪い決算のあとに、株価が上がっている銘柄（上がった順）
+const WEAK = (DATA.jp.earn && DATA.jp.earn.weak) || [];
 // 形は日足と週足で見る。1時間足・月足を選んでいるときは週足で見る
 const shapeFrame = () => (state.frame === "d" ? "d" : "w");
-const inShape = (s, shape, f) => (shape === "brk" ? Boolean(s.brk && s.brk[f]) : (s.shape || {})[f] === shape);
+const inShape = (s, shape, f) => (shape === "weak" ? false : shape === "brk" ? Boolean(s.brk && s.brk[f]) : (s.shape || {})[f] === shape);
 // 形の札（日足・週足）。レンジを上に抜けたばかりなら、塗りつぶした札にする
 function shapeBadges(s) {
   return ["d", "w"].filter((f) => (s.shape || {})[f]).map((f) => {
@@ -686,19 +689,23 @@ function render() {
   if (isEarn) {
     const f = shapeFrame();
     document.querySelectorAll("[data-shape]").forEach((b) => {
-      const n = EARN.filter((s) => inShape(s, b.dataset.shape, f)).length;
+      const n = b.dataset.shape === "weak" ? WEAK.length : EARN.filter((s) => inShape(s, b.dataset.shape, f)).length;
       b.textContent = `${SHAPES[b.dataset.shape]} ${n}`;
       b.setAttribute("aria-selected", String(b.dataset.shape === state.shape));
     });
-    const all = EARN.filter((s) => inShape(s, state.shape, f));
+    const isWeak = state.shape === "weak";
+    const all = isWeak ? WEAK : EARN.filter((s) => inShape(s, state.shape, f));
     const list = all.slice(0, state.shown);
-    sub.textContent = `株探の決算速報（直近${(DATA.jp.earn || {}).days || 45}日）で業績の強い日本株を、${FRAMES[f].name}の形で分けた一覧`;
-    head.innerHTML = EARN.length
+    sub.textContent = isWeak
+      ? `株探の決算速報（直近${(DATA.jp.earn || {}).days || 45}日）で業績が悪かったのに、発表から株価が上がっている日本株（${FRAMES[f].name}）。上下のぶれが大きいので注意`
+      : `株探の決算速報（直近${(DATA.jp.earn || {}).days || 45}日）で業績の強い日本株を、${FRAMES[f].name}の形で分けた一覧`;
+    head.innerHTML = isWeak ? (WEAK.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>発表からの上がり方が大きい順に${list.length}銘柄を表示` : "")
+      : EARN.length
       ? `<strong>${all.length.toLocaleString()}銘柄</strong>最高益・上方修正・増配の多い順に${list.length}銘柄を表示`
       : "";
     grid.innerHTML = list.length
       ? list.map((s) => ownCard("jp", s.code, { note: s }, s)).join("")
-      : `<p class="empty">${EARN.length ? `${FRAMES[f].name}で${SHAPES[state.shape]}の銘柄はありません。` : "株探の決算速報を、いま読めていません。"}</p>`;
+      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : EARN.length ? `${FRAMES[f].name}で${SHAPES[state.shape]}の銘柄はありません。` : "株探の決算速報を、いま読めていません。"}</p>`;
     document.getElementById("more").hidden = state.shown >= all.length;
     return;
   }

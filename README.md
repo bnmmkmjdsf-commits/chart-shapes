@@ -71,6 +71,7 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
   `python -m screener.earnings` で前回の続きだけ読み（1秒おき）、結果の `earnings.json` を main に push する。初回は45日分で数分、2回目からは数秒〜1分
 - 日本株の更新（夕方16:30）が `earnings.json` を読み、その日の株価で形を判定する。`earnings.json` が無い・読めないときは業績タブが空になる（ほかは止まらない）
 - 株探の非公式な読み取りなので、ページの作りが変わると読めなくなる
+- 業績悪・株価高: 減益・下方修正・赤字の決算のあと、発表から5%以上株価が上がっている銘柄（上がった順）。ぶれが大きいので注意。`earnings.json` の `weak` を使うので、初回は `python -m screener.earnings --full` で全部読み直す
 - 条件は `screener/earnings.py` の先頭にある
 
 ## 更新のしかた
