@@ -272,6 +272,10 @@ def update(log=print, full=False):
         saved = {}
     since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
     kept = [s for s in saved.get("stocks", []) if pd.Timestamp(s["at"]) >= since]
+    if saved and "weak" not in saved:
+        # 業績の悪い見出しを残す前の earnings.json なら、1回だけ全部読み直す
+        full = True
+        log("業績の悪い見出しがまだ無いので、直近の見出しを全部読み直します")
     log("株探の決算速報を読んでいます...")
     new = headlines(log, known=[] if full else saved.get("seen", []))
     if not new and not saved:
