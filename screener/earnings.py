@@ -163,6 +163,21 @@ def shape(high, low, close, frame):
     return kind, breakout
 
 
+def move_since(at, close):
+    """決算を出した日からの株価の動き（%）。close は日足の終値（行が日付）。
+
+    15時より前に出た決算は、その日のうちに株価が動くので、前の営業日の終値から見る。
+    15時以降に出た決算は、その日の終値から見る（動くのは次の営業日から）。
+    """
+    close = close.dropna()
+    when = pd.Timestamp(at)
+    day = pd.Timestamp(when.date())
+    before = close[close.index < day] if when.hour < 15 else close[close.index <= day]
+    if before.empty or close.index[-1] <= before.index[-1]:
+        return None
+    return round(float((close.iloc[-1] / before.iloc[-1] - 1) * 100), 1)
+
+
 def build(info, frames, log=print):
     """業績タブのデータ。frames は {"d": 日足, "w": 週足}（取引の終わった足だけの表）。
 
@@ -183,7 +198,8 @@ def build(info, frames, log=print):
             if kind:
                 shapes[frame], breaks[frame] = kind, brk
         row = info.loc[symbol]
-        stocks.append({**item, "name": row["name"] or item["code"],
+        move = move_since(item["at"], frames["d"]["close"][symbol]) if "d" in frames and symbol in frames["d"]["close"].columns else None
+        stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"], "shape": shapes, "brk": breaks})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日）")
     return {"days": DAYS, "stocks": stocks}

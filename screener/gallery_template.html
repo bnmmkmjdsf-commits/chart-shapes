@@ -625,7 +625,7 @@ function card(market, s, opts = {}) {
       <div class="top"><span class="nm"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span></div>
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
       ${since}
-      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>` : ""}
+      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move >= 0.05 ? "gain" : opts.note.move <= -0.05 ? "loss" : ""}">${pct(opts.note.move)}</b></div>` : ""}</div>` : ""}
       ${opts.own ? `<div class="alerts">${opts.note ? shapeBadges(opts.note) : earnBreakBadges(market, s.code) + crossBadges(market, s.code)}</div>` : ""}
       ${s.body ?? chart(s)}
     </a>
