@@ -279,9 +279,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="stack" id="hold" hidden>
     <form class="transfer" id="holdform">
       <div class="holdadd">
-        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="この端末だけに足す（例: 7203 AAPL）">
+        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="コードを入れて足す（例: 7203 AAPL）">
         <button type="submit">足す</button>
-        <button type="button" id="sendhold">この一覧をコピー</button>
       </div>
       <p id="holdnotice" aria-live="polite"></p>
     </form>
@@ -291,7 +290,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <h2 class="sechead" id="listtitle"></h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
-    <button type="button" id="send">この一覧をコピー</button>
+    <button type="button" id="token">合言葉を入れる</button>
     <p id="notice" aria-live="polite"></p>
   </div>
   </div>
@@ -327,9 +326,6 @@ const detailUrl = (market, code) => market === "jp"
   ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
   : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
 
-// 注目（☆を付けた銘柄。以前は「保留」と呼んでいた）。この端末のブラウザに保存する。保存できない環境でもページは動くようにする。
-// ☆を付けた日の株価（price）と日付（from）も持ち、注目タブで今の株価との差を出す
-const FAV_KEY = "favorites-v1";
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // ☆を付けるときに、名前と業種を引くための銘柄（抜けの一覧のどこかにある）
@@ -375,87 +371,111 @@ function freshCrosses(market, code) {
 }
 const crossBadges = (market, code) => freshCrosses(market, code).map((c) =>
   `<span class="badge ${c.up ? "cu" : "cd"}">${FRAMES[c.frame].name} ${c.up ? "上抜け" : "下抜け"}${c.ago ? `（${c.ago}${FRAMES[c.frame].ago}）` : ""}</span>`).join("");
-// 持ち株と注目は、どの端末でも同じになるよう、ページが持っている共通の一覧（DATA[市場].shared。元は watch.json）から出す。
-// この端末で☆を付けた・足した銘柄は、共通の一覧に入るまでの間、この端末だけに出す（ブラウザに保存する）
-const SHARED = { fav: [], hold: [] };
+// 持ち株と注目は watch.json に持ち、どの端末にも同じものを出す。ページには作ったときの中身が入っている（DATA[市場].shared）。
+// 合言葉（GitHub の書き込み用トークン）をこの端末に入れておくと、☆・「足す」・× でそのまま watch.json を書き換える。
+// main の watch.json が変わると、ページが作り直されて（1分ほど）、ほかの端末にも出る
+const REPO = "bnmmkmjdsf-commits/chart-shapes";
+const TOKEN_KEY = "github-token-v1";
+let token = (() => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } })();
+let watch = { hold: {}, fav: {} };
 for (const market of ["jp", "us"]) {
-  const lists = DATA[market].shared || { hold: [], fav: [] };
-  SHARED.hold.push(...lists.hold.map((code) => ({ market, code, shared: true })));
-  SHARED.fav.push(...lists.fav.map((f) => ({ market, ...f, added: f.from, shared: true })));
+  const lists = DATA[market].shared || {};
+  watch.hold[market] = [...(lists.hold || [])];
+  watch.fav[market] = [...(lists.fav || [])];
 }
-const isShared = (kind, market, code) => SHARED[kind].some((x) => x.market === market && x.code === code);
-const COMMON_NOTE = "は、どの端末にも出る共通の一覧の銘柄です。外すときは Claude に伝えてください。";
-let favs = (() => {
-  try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; }
-})();
-// この端末だけの注目（新しく付けた順）の後ろに、共通の注目を並べる
-const allFavs = () => [...favs.filter((f) => !isShared("fav", f.market, f.code)), ...SHARED.fav];
-const saveFavs = () => { try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {} };
-// 株価を持たない古い注目は、今日の株価を起点にする
-if (favs.some((f) => f.price == null && priceOf(f.market, f.code) != null)) {
-  favs.forEach((f) => {
-    if (f.price == null && priceOf(f.market, f.code) != null) Object.assign(f, { price: priceOf(f.market, f.code), from: today() });
+const allFavs = () => ["jp", "us"].flatMap((market) => (watch.fav[market] || []).map((f) => ({ market, ...f })));
+const allHolds = () => ["jp", "us"].flatMap((market) => (watch.hold[market] || []).map((code) => ({ market, code })));
+const favOf = (market, code) => allFavs().find((f) => f.market === market && f.code === code);
+const hasHold = (market, code) => (watch.hold[market] || []).includes(code);
+let notice = "", holdNotice = "";
+const tell = (message) => { notice = holdNotice = message; render(); };
+// watch.json を、今のファイルと同じ書き方（1銘柄1行）で書き出す
+function watchText(w) {
+  const codes = (list) => `[${(list || []).map((c) => JSON.stringify(c)).join(", ")}]`;
+  const favs = (list) => (list && list.length
+    ? `[\n${list.map((f) => `      {"code": ${JSON.stringify(f.code)}, "price": ${f.price || 0}, "from": ${JSON.stringify(f.from || "")}}`).join(",\n")}\n    ]`
+    : "[]");
+  return `{\n  "hold": {\n    "jp": ${codes(w.hold.jp)},\n    "us": ${codes(w.hold.us)}\n  },\n  "fav": {\n    "jp": ${favs(w.fav.jp)},\n    "us": ${favs(w.fav.us)}\n  }\n}\n`;
+}
+const toBase64 = (text) => btoa(Array.from(new TextEncoder().encode(text), (b) => String.fromCharCode(b)).join(""));
+const fromBase64 = (text) => new TextDecoder().decode(Uint8Array.from(atob(text.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
+// GitHub の watch.json を読む（method が PUT なら書く）。失敗したら HTTP の番号を投げる
+async function watchFile(method = "GET", body) {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/contents/watch.json`, {
+    method, cache: "no-store", body: body && JSON.stringify(body),
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
   });
-  saveFavs();
+  if (!res.ok) throw res.status;
+  const data = await res.json();
+  if (method === "GET") data.watch = JSON.parse(fromBase64(data.content));
+  return data;
 }
-// ほかの端末への引き継ぎ。注目の中身をリンクの # の後ろに入れる（# の後ろはサーバーに送られない）。
-// 開いた端末では、まだ持っていない銘柄だけを足す（外した銘柄は引き継がない）
-const TRANSFER = "#fav=";
-// リンクは短く、LINE やメールで送っても崩れない文字（英数字と _ ~ - .）だけで作る:
-// 「市場_コード_株価_日付」を ~ でつなぐ（株価と日付は注目だけ）。名前と業種は、開いた側で銘柄ごとのファイルから引く
-const encodeFavs = (list) => list.map((x) =>
-  [x.market, x.code, x.price ?? "", (x.from || "").replace("/", "-")].join("_").replace(/_+$/, "")).join("~");
-function decodeFavs(text) {
-  // 以前のリンク（中身をまるごと詰めた長い形）も読めるようにしておく
-  if (!/^(jp|us)_/.test(text)) return JSON.parse(decodeURIComponent(escape(atob(text))));
-  return decodeURIComponent(text).split("~").map((item) => {
-    const [market, code, price, from] = item.split("_");
-    const day = (from || "").replace("-", "/");
-    return { market, code, ...(Number(price) > 0 ? { price: Number(price) } : {}), ...(day ? { from: day, added: day } : {}) };
-  });
-}
-// LINE などのアプリの中の画面で開くと、取り込んだ銘柄はその画面の中にしか残らない（いつものブラウザとは別々に保存される）
-const IN_APP = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger/i.test(navigator.userAgent);
-const IN_APP_NOTE = IN_APP
-  ? " いまはアプリの中の画面で開いています。ここに取り込んだ銘柄は、いつものブラウザ（Chrome や Safari）には入りません。メニューから「ブラウザで開く」を選んで、開き直してください。"
-  : "";
-let notice = "";
-if (location.hash.startsWith(TRANSFER)) {
-  try {
-    const incoming = decodeFavs(location.hash.slice(TRANSFER.length))
-      .filter((f) => f && (f.market === "jp" || f.market === "us") && f.code);
-    // 株価や日付の無い銘柄は、今日の株価を起点にする
-    const added = incoming.filter((f) => !favs.some((x) => x.market === f.market && x.code === f.code))
-      .map((f) => ({ ...f, code: String(f.code), price: f.price ?? priceOf(f.market, String(f.code)), from: f.from || today(), added: f.added || today() }));
-    favs = [...added, ...favs];
-    saveFavs();
-    notice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。${IN_APP_NOTE}`;
-  } catch {
-    notice = "リンクが途中で切れているようで、取り込めませんでした。";
-  }
-  history.replaceState(null, "", location.pathname + location.search);
-  state.market = "fav";
-}
-// いまの一覧をリンクにしてコピーする。Claude に貼り付けて送ると、共通の一覧（watch.json）に入り、どの端末にも出るようになる。
-// リンクをほかの端末で開けば、その端末だけに取り込むこともできる。返すのは画面に出す案内
-async function sendLink(title, what, url) {
-  const shown = `Claude に貼り付けて送ると、どの端末にも出る共通の${what}になります。リンク: ${url}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    return `コピーしました。${shown}`;
-  } catch {
-    return `コピーできませんでした。下のリンクを選んでコピーしてください。${shown}`;
-  }
-}
-async function sendFavs() {
-  const message = await sendLink("注目の引き継ぎ", "注目", location.origin + location.pathname + TRANSFER + encodeFavs(allFavs()));
-  if (message == null) return;
-  notice = message;
+// change(w) で中身を書き換えて保存する。画面はすぐ変え、保存は最新の watch.json を読んでから当てる
+// （ほかの端末の変更を消さないため）。続けて押しても、1つずつ順に保存する
+let saving = Promise.resolve();
+function saveWatch(change, message) {
+  change(watch);
   render();
+  saving = saving.then(async () => {
+    for (let tries = 0; ; tries++) {
+      try {
+        const now = await watchFile();
+        change(now.watch);
+        await watchFile("PUT", { message, content: toBase64(watchText(now.watch)), sha: now.sha });
+        return;
+      } catch (status) {
+        if (status === 409 && tries < 2) continue;  // ほかの端末と同時に保存したときは、読み直してやり直す
+        throw status;
+      }
+    }
+  }).catch((status) => {
+    if (status === 401) forgetToken();
+    tell(status === 401 ? "合言葉が使えなくなっています。もう一度入れてください。"
+      : status === 403 || status === 404 ? "合言葉に書き込みの許可がありません（作るときに Contents を Read and write にしてください）。"
+        : "保存できませんでした。通信を確かめて、もう一度押してください。");
+    if (token) watchFile().then((now) => { watch = now.watch; render(); }).catch(() => {});
+  });
 }
-// 持ち株。ページで登録した銘柄（市場とコードだけ）を、この端末のブラウザに保存する。
-const HOLD_KEY = "holdings-v1";
-const HOLD_TRANSFER = "#hold=";
+function forgetToken() {
+  token = "";
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+}
+// 合言葉が無ければ聞く。入れてもらえたら true
+async function ensureToken() {
+  if (token) return true;
+  const input = (prompt("合言葉（GitHub のトークン）を貼り付けてください。この端末に保存され、☆と持ち株の足し外しが、どの端末にも出るようになります。") || "").trim();
+  if (!input) return false;
+  token = input;
+  try {
+    watch = (await watchFile()).watch;
+  } catch {
+    forgetToken();
+    tell("合言葉が違うようです。もう一度確かめてください。");
+    return false;
+  }
+  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  tell("合言葉を入れました。");
+  moveLocalLists();
+  return true;
+}
+// 以前この端末だけに保存していた☆と持ち株を、watch.json に移す
+function moveLocalLists() {
+  const old = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
+  const favs = old("favorites-v1").filter((f) => f && (f.market === "jp" || f.market === "us") && f.code);
+  const holds = old("holdings-v1").filter((h) => h && (h.market === "jp" || h.market === "us") && h.code);
+  try { localStorage.removeItem("favorites-v1"); localStorage.removeItem("holdings-v1"); } catch {}
+  if (!favs.length && !holds.length) return;
+  saveWatch((w) => {
+    for (const f of favs) {
+      if (!w.fav[f.market].some((x) => x.code === String(f.code))) {
+        w.fav[f.market].push({ code: String(f.code), price: f.price || priceOf(f.market, String(f.code)) || 0, from: f.from || today() });
+      }
+    }
+    for (const h of holds) if (!w.hold[h.market].includes(String(h.code))) w.hold[h.market].push(String(h.code));
+  }, "この端末だけにあった☆と持ち株を watch.json に移す");
+}
+// 合言葉があれば、ページが作り直される前でも最新の watch.json を出す
+if (token) watchFile().then((now) => { watch = now.watch; render(); }).catch(() => {});
 // 持ち株と注目のチャートは、銘柄ごとのファイル（s/市場/コード.json）から読む。全銘柄ぶんをページに持たせると重いため。
 // stockFiles の値は、読めたらその中身、読み込み中は "loading"、無い・読めないときは null
 const stockFiles = new Map();
@@ -477,32 +497,6 @@ function loadStock(market, code) {
   }
   return stockFiles.get(key);
 }
-let holds = (() => {
-  try { return JSON.parse(localStorage.getItem(HOLD_KEY)) || []; } catch { return []; }
-})();
-const saveHolds = () => { try { localStorage.setItem(HOLD_KEY, JSON.stringify(holds)); } catch {} };
-let holdNotice = "";
-// 共通の持ち株の後ろに、この端末だけの持ち株を並べる
-const allHolds = () => [...SHARED.hold, ...holds.filter((h) => !isShared("hold", h.market, h.code))];
-const hasHold = (market, code) => allHolds().some((h) => h.market === market && h.code === code);
-if (location.hash.startsWith(HOLD_TRANSFER)) {
-  try {
-    const incoming = decodeFavs(location.hash.slice(HOLD_TRANSFER.length))
-      .filter((h) => h && (h.market === "jp" || h.market === "us") && h.code);
-    const added = incoming.filter((h) => !hasHold(h.market, h.code));
-    holds = [...holds, ...added.map((h) => ({ market: h.market, code: String(h.code) }))];
-    saveHolds();
-    holdNotice = `ほかの端末から${added.length}銘柄を取り込みました（すでにあった${incoming.length - added.length}銘柄はそのまま）。${IN_APP_NOTE}`;
-  } catch {
-    holdNotice = "リンクが途中で切れているようで、取り込めませんでした。";
-  }
-  history.replaceState(null, "", location.pathname + location.search);
-}
-// ページをもう開いているタブに引き継ぎのリンクを貼り付けて開くと、# の後ろが変わるだけで読み込み直しにならず、
-// 上の取り込みが動かない。読み込み直して取り込む
-window.addEventListener("hashchange", () => {
-  if (location.hash.startsWith(TRANSFER) || location.hash.startsWith(HOLD_TRANSFER)) location.reload();
-});
 // 持ち株があれば、初めに持ち株タブを開く
 if (allHolds().length && state.market === "jp") state.market = "hold";
 // コード（空白や読点で区切って複数可）を足す。全角は半角に、小文字は大文字にそろえ、日本株 → 米国株の順に探す
@@ -512,22 +506,20 @@ function addHolds(text) {
   for (const code of codes) {
     const market = ["jp", "us"].find((m) => priceOf(m, code) != null);
     if (!market) missing.push(code);
-    else if (hasHold(market, code)) dup.push(code);
-    else { holds.push({ market, code }); added.push(code); }
+    else if (hasHold(market, code) || added.some((a) => a.code === code)) dup.push(code);
+    else added.push({ market, code });
   }
-  saveHolds();
-  holdNotice = [
-    added.length ? `${added.join("・")} を足しました。` : "",
+  if (added.length) {
+    saveWatch((w) => {
+      for (const a of added) if (!w.hold[a.market].includes(a.code)) w.hold[a.market].push(a.code);
+    }, `持ち株に ${added.map((a) => a.code).join("・")} を足す`);
+  }
+  tell([
+    added.length ? `${added.map((a) => a.code).join("・")} を足しました。` : "",
     dup.length ? `${dup.join("・")} はもう入っています。` : "",
     missing.length ? `${missing.join("・")} は見つかりませんでした（コードの打ち間違いか、対象外の銘柄です）。` : "",
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join(" "));
   return !missing.length;
-}
-async function sendHolds() {
-  const message = await sendLink("持ち株の引き継ぎ", "持ち株", location.origin + location.pathname + HOLD_TRANSFER + encodeFavs(allHolds()));
-  if (message == null) return;
-  holdNotice = message;
-  render();
 }
 // 持ち株と注目のカードのチャート（ローソク足と移動平均）。s は銘柄ごとのファイルの、1つの足の種類ぶん。
 // 始値・高値・安値は終値からのずれ（千分率）で入っている。移動平均は、チャートより前の終値（p）も使ってここで計算する
@@ -556,27 +548,25 @@ function renderHold() {
   document.getElementById("holdgrid").innerHTML = holds.length
     ? rows.map((r) => ownCard(r.h.market, r.h.code, { drop: true })).join("")
     : `<p class="empty">持っている銘柄のコードを入れて「足す」を押すと、ここに並びます。</p>`;
-  document.getElementById("sendhold").hidden = !holds.length;
   document.getElementById("holdnotice").textContent = holdNotice;
 }
 
-const favOf = (market, code) => allFavs().find((f) => f.market === market && f.code === code);
-function toggleFav(market, code) {
-  if (isShared("fav", market, code)) {
-    notice = `${code} ${COMMON_NOTE}`;
-    render();
-    return;
-  }
-  notice = "";
-  if (favOf(market, code)) {
-    favs = favs.filter((f) => !(f.market === market && f.code === code));
-  } else {
-    const s = findStock(market, code);
-    favs.unshift({ market, code, name: s.name, sector: s.sector || "", added: today(), from: today(), price: priceOf(market, code) });
-    notice = `${code} に☆を付けました。この端末だけに出ます。ほかの端末にも出すには、★ 注目タブの「この一覧をコピー」を押して、Claude に貼り付けて送ってください。`;
-  }
-  saveFavs();
-  render();
+async function toggleFav(market, code) {
+  if (!(await ensureToken())) return;
+  const on = !favOf(market, code);
+  const entry = { code, price: priceOf(market, code) || 0, from: today() };
+  saveWatch((w) => {
+    const list = w.fav[market];
+    const i = list.findIndex((f) => f.code === code);
+    if (!on && i >= 0) list.splice(i, 1);
+    if (on && i < 0) {
+      // 新しく付けた順。先頭の指数（日付が無い）のすぐ後ろに入れる
+      let at = 0;
+      while (at < list.length && !list[at].from) at++;
+      list.splice(at, 0, entry);
+    }
+  }, `注目${on ? "に" : "から"} ${code} を${on ? "入れる" : "外す"}`);
+  tell(`${code} を注目${on ? "に入れました" : "から外しました"}。`);
 }
 
 function chart(s) {
@@ -669,7 +659,7 @@ function render() {
   document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
   document.getElementById("listtitle").hidden = isFavTab || isHold || isEarn;
   document.getElementById("transfer").hidden = !isFavTab;
-  document.getElementById("send").hidden = !favs.length;
+  document.getElementById("token").hidden = Boolean(token);
   document.getElementById("notice").textContent = notice;
   document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
   const lines = FRAMES[state.frame].ma;
@@ -734,32 +724,23 @@ function render() {
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
-document.getElementById("send").addEventListener("click", sendFavs);
-document.querySelector("main").addEventListener("click", (e) => {
+document.getElementById("token").addEventListener("click", ensureToken);
+document.querySelector("main").addEventListener("click", async (e) => {
   const b = e.target.closest(".star:not(.drop)");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
   const drop = e.target.closest(".drop");
-  if (drop && isShared("hold", drop.dataset.holdMarket, drop.dataset.code)) {
-    holdNotice = `${drop.dataset.code} ${COMMON_NOTE}`;
-    render();
-    return;
-  }
-  if (drop) {
-    holds = holds.filter((h) => !(h.market === drop.dataset.holdMarket && h.code === drop.dataset.code));
-    saveHolds();
-    holdNotice = `${drop.dataset.code} を外しました。`;
-    render();
-    return;
+  if (drop && (await ensureToken())) {
+    const { holdMarket: market, code } = drop.dataset;
+    saveWatch((w) => { w.hold[market] = w.hold[market].filter((c) => c !== code); }, `持ち株から ${code} を外す`);
+    tell(`${code} を外しました。`);
   }
 });
-document.getElementById("holdform").addEventListener("submit", (e) => {
+document.getElementById("holdform").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = document.getElementById("holdcode");
-  if (!input.value.trim()) return;
+  if (!input.value.trim() || !(await ensureToken())) return;
   if (addHolds(input.value)) input.value = "";
-  render();
 });
-document.getElementById("sendhold").addEventListener("click", sendHolds);
 document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
