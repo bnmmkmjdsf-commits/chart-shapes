@@ -15,7 +15,6 @@
     ],
     "us": [
       {"code": "NDX", "price": 0, "from": ""},
-      {"code": "QCOM", "price": 172.47, "from": "11/16"},
       {"code": "AMD", "price": 534.06, "from": "11/16"},
       {"code": "STN", "price": 85.69, "from": "11/15"},
       {"code": "CPRT", "price": 31.83, "from": "11/15"}
