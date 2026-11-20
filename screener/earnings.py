@@ -129,6 +129,8 @@ def strong(items):
 
 # 業績の悪い見出し（減益・下方修正・赤字・減額・減配）。業績が悪いのに株価が上がっている銘柄を探すのに使う
 WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
+# 「赤字縮小」「黒字浮上」など、良くなった決算は業績悪から外す
+NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
 # 業績が悪いのに株価が上がったとみなす、決算の発表からの上昇率（%）
 WEAK_MIN_MOVE = 5.0
 
@@ -138,7 +140,7 @@ def weak(items):
     latest, strong_at = {}, {}
     for item in items:
         main = item["title"].split("・")[0]
-        if score(item["title"]) is None and WEAK.search(main):
+        if score(item["title"]) is None and WEAK.search(main) and not NOT_WEAK.search(main):
             if item["code"] not in latest or item["at"] > latest[item["code"]]["at"]:
                 latest[item["code"]] = item
         else:
