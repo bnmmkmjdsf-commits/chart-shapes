@@ -22,14 +22,16 @@ def main():
 
     data = json.loads(published.payload())  # 壊れたデータで公開ページを上書きしないよう、読めることを確かめる
     for market in data:
+        for old in ("frames", "top"):  # 前の形のページにあった抜けの一覧は、もう使わないので捨てる
+            data[market].pop(old, None)
         data[market]["shared"] = watch.shared(market)  # 持ち株と注目は、いつも今の watch.json から入れる
     # JSON を <script> に埋め込むので、"</" で script が閉じないようにする
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
-        counts = {frame: (result["up"]["count"], result["down"]["count"]) for frame, result in data[market]["frames"].items()}
-        print(f"{label}: {counts}（前回のデータ。上抜け・下抜けの銘柄数）")
+        earn = data[market].get("earn") or {}
+        print(f"{label}: 業績良し {len(earn.get('stocks', []))} 銘柄、業績悪 {len(earn.get('weak', []))} 銘柄（前回のデータ）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

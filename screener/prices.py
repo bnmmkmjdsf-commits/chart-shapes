@@ -137,15 +137,3 @@ def align_bars(bars, interval):
         aligned[key] = table.groupby(start).agg(BAR_AGG[key])
     return aligned
 
-
-# 日足を週足にまとめるときの方法（出来高はその週の合計）
-WEEK_AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-
-
-def to_weekly(daily):
-    """日足から週足を作る（行は週の月曜の日付）。週足を別に取らずに済ませるためのもの"""
-    weekly = {}
-    for key, table in daily.items():
-        monday = table.index - pd.to_timedelta(table.index.weekday, unit="D")
-        weekly[key] = table.groupby(monday).agg(WEEK_AGG[key])
-    return weekly

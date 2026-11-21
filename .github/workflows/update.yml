@@ -5,10 +5,6 @@ on:
     # それぞれの市場が閉じた後に、その市場だけ取り直す（下の MARKETS で cron の文字列と見比べている）
     - cron: "0 22 * * 1-5"   # 日本時間 火〜土 7:00（米国市場の月〜金の終値のあと）→ 米国株
     - cron: "30 7 * * 1-5"   # 日本時間 月〜金 16:30（東証の終値のあと）→ 日本株
-    # 取引時間中は、1時間足だけを1時間おきに取り直す（一覧の銘柄と watch.json の銘柄。下の HOURLY で cron の文字列と見比べている）。
-    # 株価が15〜20分遅れて届くので、1時間足が終わってから少し待つ
-    - cron: "25 1-6 * * 1-5"    # 日本時間 月〜金 10:25〜15:25 → 日本株の1時間足
-    - cron: "50 14-20 * * 1-5"  # 米国東部 月〜金 9:50〜15:50（夏時間は10:50〜16:50）→ 米国株の1時間足
   # watch.json（持ち株と注目）を main で変えたら、株価は取り直さず、見た目だけ作り直す（20秒ほど）。
   # 新しく足した銘柄のチャートは、次の更新から出る
   push:
@@ -18,10 +14,6 @@ on:
     inputs:
       reuse_data:
         description: 株価を取り直さず、公開中のページのデータで作り直す（見た目だけ変えたとき用。1分ほどで終わる）
-        type: boolean
-        default: false
-      hourly:
-        description: 1時間足だけを取り直す（取引時間中の更新と同じ動き。一覧の銘柄と watch.json の銘柄だけ。1〜2分で終わる）
         type: boolean
         default: false
       markets:
@@ -58,9 +50,8 @@ jobs:
         run: pip install -r requirements.txt
       - if: ${{ !(inputs.reuse_data || github.event_name == 'push') }}
         env:
-          MARKETS: ${{ (github.event.schedule == '0 22 * * 1-5' || github.event.schedule == '50 14-20 * * 1-5') && 'us' || (github.event.schedule == '30 7 * * 1-5' || github.event.schedule == '25 1-6 * * 1-5') && 'jp' || inputs.markets || 'both' }}
-          HOURLY: ${{ (github.event.schedule == '25 1-6 * * 1-5' || github.event.schedule == '50 14-20 * * 1-5' || inputs.hourly) && '--hourly' || '' }}
-        run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS" $HOURLY   # -u: 進み具合をその場でログに出す
+          MARKETS: ${{ github.event.schedule == '0 22 * * 1-5' && 'us' || github.event.schedule == '30 7 * * 1-5' && 'jp' || inputs.markets || 'both' }}
+        run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS"   # -u: 進み具合をその場でログに出す
       - if: ${{ inputs.reuse_data || github.event_name == 'push' }}
         run: python -m screener.retemplate --out site/index.html
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。

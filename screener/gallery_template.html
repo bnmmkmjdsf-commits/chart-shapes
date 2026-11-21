@@ -285,12 +285,9 @@ const STEP = 20;
 // shape は業績タブで出す方（good が業績良し、weak が業績悪）
 // earnMarket は業績タブで出す市場
 const state = { market: "earn", frame: "d", shape: "good", earnMarket: "jp", shown: STEP };
-// 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
+// チャートの足（日足だけ）。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
-  h: { name: "1時間足", ma: ["25本線", "75本線", "200本線"], sizes: [25, 75, 200], ago: "本前" },
   d: { name: "日足", ma: ["5日線", "25日線", "75日線"], sizes: [5, 25, 75], ago: "日前" },
-  w: { name: "週足", ma: ["13週線", "26週線", "52週線"], sizes: [13, 26, 52], ago: "週前" },
-  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], sizes: [12, 24, 60], ago: "か月前" },
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -310,12 +307,12 @@ const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // 日本株は株探の決算速報、米国株は Yahoo Finance の1株利益の予想と実績から拾っている
 const SHAPES = { good: "業績良し", weak: "業績悪" };
 const earnList = (market, shape) => ((DATA[market].earn || {})[shape === "weak" ? "weak" : "stocks"]) || [];
-// 抜けの札。日足・週足・月足のそれぞれで、短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
+// 抜けの札。日足で短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
 // DATA[市場].cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き（上抜けが1）, 何本前か]}}
-const FRESH = { h: 6, d: 2, w: 1, m: 0 };
+const FRESH = { d: 2 };
 function freshCrosses(market, code) {
   const found = (DATA[market].cross || {})[code] || {};
-  return ["h", "d", "w", "m"].filter((f) => found[f] && found[f][1] <= FRESH[f])
+  return Object.keys(FRESH).filter((f) => found[f] && found[f][1] <= FRESH[f])
     .map((f) => ({ frame: f, up: found[f][0] > 0, ago: found[f][1] }));
 }
 const crossBadges = (market, code) => freshCrosses(market, code).map((c) =>
