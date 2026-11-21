@@ -209,8 +209,28 @@ US_MIN_ESTIMATE = 0.10
 US_MIN_MARKET_CAP = 3e8
 
 
+# 決算の予定表が読めないとき（Yahoo の「Invalid Crumb」など）に、読み直す回数と間（秒）
+US_TRIES = 4
+US_RETRY_WAIT = 15
+
+
+def _reset_yahoo():
+    """Yahoo に入るための合言葉（cookie と crumb）を捨てて、次に読むときに取り直させる"""
+    try:
+        from yfinance.data import YfData
+
+        data = YfData()
+        data._cookie = None
+        data._crumb = None
+    except Exception:
+        pass
+
+
 def us_reports(log=print, days=DAYS):
-    """直近 days 日に決算を出した米国株の、1株利益の予想と実績（銘柄ごとに一番新しい決算）。読めないときは空の表"""
+    """直近 days 日に決算を出した米国株の、1株利益の予想と実績（銘柄ごとに一番新しい決算）。
+
+    1ページ目が何度読み直しても読めないときは、例外を出す（呼ぶ側が前回のデータを使う）
+    """
     import yfinance as yf
 
     end = pd.Timestamp.now("America/New_York").normalize() + pd.Timedelta(days=1)
@@ -218,11 +238,23 @@ def us_reports(log=print, days=DAYS):
     calendar = yf.Calendars(start=f"{start:%Y-%m-%d}", end=f"{end:%Y-%m-%d}")
     parts = []
     for page in range(100):  # 1回に100社まで。時価総額の大きい順に読んでいく
-        try:
-            part = calendar.get_earnings_calendar(market_cap=US_MIN_MARKET_CAP, filter_most_active=False,
-                                                  limit=100, offset=page * 100, force=True)
-        except Exception as error:
-            log(f"  米国株の決算の予定表の {page + 1} ページ目が読めません（{error}）")
+        part = error = None
+        for attempt in range(US_TRIES):
+            try:
+                part = calendar.get_earnings_calendar(market_cap=US_MIN_MARKET_CAP, filter_most_active=False,
+                                                      limit=100, offset=page * 100, force=True)
+                error = None
+                break
+            except Exception as e:
+                error = e
+                log(f"  米国株の決算の予定表の {page + 1} ページ目が読めません（{e}）。"
+                    + ("読み直します" if attempt + 1 < US_TRIES else "あきらめます"))
+                if attempt + 1 < US_TRIES:
+                    _reset_yahoo()
+                    time.sleep(US_RETRY_WAIT)
+        if error is not None:
+            if not parts:
+                raise RuntimeError(f"米国株の決算の予定表が読めません（{error}）")
             break
         if part is None or part.empty:
             break
