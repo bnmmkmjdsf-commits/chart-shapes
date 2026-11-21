@@ -578,14 +578,14 @@ function render() {
     const days = (DATA[m].earn || {}).days || 45, frame = FRAMES[state.frame].name;
     sub.textContent = isUs
       ? (isWeak ? `直近${days}日の決算で1株利益が予想を大きく下回ったのに、発表から株価が上がっている米国株（${frame}）。上下のぶれが大きいので注意`
-        : `直近${days}日の決算で、1株利益が予想を大きく上回った米国株（${frame}）`)
+        : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株（${frame}）`)
       : (isWeak ? `株探の決算速報（直近${days}日）で業績が悪かったのに、発表から株価が上がっている日本株（${frame}）。上下のぶれが大きいので注意`
-        : `株探の決算速報（直近${days}日）で業績の強い日本株（${frame}）`);
+        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株（${frame}）`);
     const order = isWeak ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
       ? list.map((s) => ownCard(m, s.code, { note: s }, s)).join("")
-      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : "決算のデータを、いま読めていません。"}</p>`;
+      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : "業績が良くて株価も上がっている銘柄は、いまありません。"}</p>`;
     document.getElementById("more").hidden = state.shown >= all.length;
     return;
   }

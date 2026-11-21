@@ -130,8 +130,8 @@ def strong(items):
 WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
 # 「赤字縮小」「黒字浮上」など、良くなった決算は業績悪から外す
 NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
-# 業績が悪いのに株価が上がったとみなす、決算の発表からの上昇率（%）
-WEAK_MIN_MOVE = 5.0
+# 決算の発表からこれだけ上がった銘柄だけ、業績良し・業績悪に載せる（%）。相場も好決算と見た銘柄に絞る
+MIN_MOVE = 5.0
 
 
 def weak(items):
@@ -179,9 +179,11 @@ def build(info, frames, log=print):
             continue
         row = info.loc[symbol]
         move = move_since(item["at"], frames["d"]["close"][symbol]) if "d" in frames and symbol in frames["d"]["close"].columns else None
+        if move is None or move < MIN_MOVE:
+            continue
         stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"]})
-    log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日）")
+    log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日・発表から +{MIN_MOVE:g}% 以上）")
     # 業績が悪いのに、決算の発表から株価が上がっている銘柄（上がった順）
     weak_stocks = []
     for item in load_weak(log):
@@ -189,13 +191,13 @@ def build(info, frames, log=print):
         if symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
             continue
         move = move_since(item["at"], frames["d"]["close"][symbol])
-        if move is None or move < WEAK_MIN_MOVE:
+        if move is None or move < MIN_MOVE:
             continue
         row = info.loc[symbol]
         weak_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                             "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     weak_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"業績悪・株価高: {len(weak_stocks):,} 銘柄（発表から +{WEAK_MIN_MOVE:g}% 以上）")
+    log(f"業績悪・株価高: {len(weak_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
     return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
 
 
@@ -261,7 +263,7 @@ def build_us(info, close, log=print):
         if not (good or bad):
             continue
         move = us_move_since(r["when"], r.get("Timing"), close[symbol]) if symbol in close.columns else None
-        if bad and (move is None or move < WEAK_MIN_MOVE):
+        if move is None or move < MIN_MOVE:
             continue
         row = info.loc[symbol]
         item = {"code": row["code"], "date": f"{r['when'].month}/{r['when'].day:02d}",
