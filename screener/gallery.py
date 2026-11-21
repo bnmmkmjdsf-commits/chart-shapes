@@ -278,8 +278,8 @@ def _build(market, log, site):
            for symbol in listed if symbol in info.index]
     result = {"frames": frames, "cross": crosses, "top": top, "prices": _prices(info, daily)}
     if market == "jp":
-        # 業績タブ（株探の決算速報で業績の強い銘柄を、日足・週足のチャートの形で分ける）
-        result["earn"] = earnings.build(info, {"d": daily, "w": weekly}, log)
+        # 業績タブ（株探の決算速報で業績の良い銘柄と、業績が悪いのに株価が上がっている銘柄）
+        result["earn"] = earnings.build(info, {"d": daily}, log)
     return result
 
 

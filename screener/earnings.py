@@ -1,4 +1,4 @@
-"""株探の決算速報（https://kabutan.jp/news/）から、業績の強い日本株を拾い、チャートの形（上昇・レンジ・転換中・下降）で分ける。
+"""株探の決算速報（https://kabutan.jp/news/）から、業績の良い日本株と、業績が悪いのに株価が上がっている日本株を拾う。
 
 決算速報の見出し（例:「タングス、今期経常を一転2.2倍増益に上方修正・5期ぶり最高益、配当も50円増額」）だけを見る。
 点数は「最高益」3点、「上方修正」2点、「増配・増額」1点、「7-9月期も増益」のような直近の四半期の伸び1点。
@@ -16,7 +16,6 @@ import re
 import time
 import urllib.request
 
-import numpy as np
 import pandas as pd
 
 SAVED = Path(__file__).resolve().parent.parent / "earnings.json"
@@ -151,42 +150,6 @@ def weak(items):
             if v["at"] > strong_at.get(v["code"], "")]
 
 
-# チャートの形を見る期間。足の数を3つに区切り、区切りごとの高値・安値が切り上がっているか・下がっているかを見る
-SHAPE_BARS = {"d": 60, "w": 30}
-# 区切りごとの高値・安値のぶれがこの割合以内なら、レンジ
-RANGE_WIDTH = {"d": 0.06, "w": 0.10}
-TOLERANCE = 0.01
-
-
-def shape(high, low, close, frame):
-    """1銘柄の形（"up" 上昇・"range" レンジ・"turn" 転換中・"down" 下降）と、レンジを上に抜けたか。
-
-    形は、取引の終わった直近の足を除いた期間で見る。その期間がレンジで、直近の足の終値が期間の高値を超えたら上抜け。
-    データが足りなければ (None, False)。
-    """
-    n = SHAPE_BARS[frame]
-    h, l, c = high.dropna(), low.dropna(), close.dropna()
-    if len(c) < n + 1 or len(h) < n + 1 or len(l) < n + 1:
-        return None, False
-    h, l = h.iloc[-n - 1:-1].to_numpy(), l.iloc[-n - 1:-1].to_numpy()
-    size = n // 3
-    hs = [h[i * size:(i + 1) * size].max() for i in range(3)]
-    ls = [l[i * size:(i + 1) * size].min() for i in range(3)]
-    t = TOLERANCE
-    rising = all(b > a * (1 - t) for a, b in zip(hs, hs[1:])) and all(b > a * (1 - t) for a, b in zip(ls, ls[1:]))
-    falling = all(b < a * (1 + t) for a, b in zip(hs, hs[1:])) and all(b < a * (1 + t) for a, b in zip(ls, ls[1:]))
-    if rising and hs[2] > hs[0] and ls[2] > ls[0]:
-        kind = "up"
-    elif falling and hs[2] < hs[0] and ls[2] < ls[0]:
-        kind = "down"
-    elif max(hs) / min(hs) - 1 < RANGE_WIDTH[frame] and max(ls) / min(ls) - 1 < RANGE_WIDTH[frame]:
-        kind = "range"
-    else:
-        kind = "turn"
-    breakout = kind == "range" and bool(c.iloc[-1] > np.max(h))
-    return kind, breakout
-
-
 def move_since(at, close):
     """決算を出した日からの株価の動き（%）。close は日足の終値（行が日付）。
 
@@ -203,9 +166,9 @@ def move_since(at, close):
 
 
 def build(info, frames, log=print):
-    """業績タブのデータ。frames は {"d": 日足, "w": 週足}（取引の終わった足だけの表）。
+    """業績タブのデータ。frames は {"d": 日足}（取引の終わった足だけの表）。発表からの株価の動きに使う。
 
-    返すのは {"days": 見た日数, "stocks": [{code, name, sector, date, title, score, rate, shape: {d, w}, brk: {d, w}}]}。
+    返すのは {"days": 見た日数, "stocks": [{code, name, sector, date, title, score, rate, move}], "weak": [...]}。
     株探が読めないときは stocks が空。
     """
     ranked = load(log)
@@ -214,17 +177,10 @@ def build(info, frames, log=print):
         symbol = f"{item['code']}.T"
         if symbol not in info.index:
             continue
-        shapes, breaks = {}, {}
-        for frame, bars in frames.items():
-            if symbol not in bars["close"].columns:
-                continue
-            kind, brk = shape(bars["high"][symbol], bars["low"][symbol], bars["close"][symbol], frame)
-            if kind:
-                shapes[frame], breaks[frame] = kind, brk
         row = info.loc[symbol]
         move = move_since(item["at"], frames["d"]["close"][symbol]) if "d" in frames and symbol in frames["d"]["close"].columns else None
         stocks.append({**item, "move": move, "name": row["name"] or item["code"],
-                       "sector": "" if pd.isna(row["sector"]) else row["sector"], "shape": shapes, "brk": breaks})
+                       "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日）")
     # 業績が悪いのに、決算の発表から株価が上がっている銘柄（上がった順）
     weak_stocks = []
