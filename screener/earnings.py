@@ -128,9 +128,9 @@ def strong(items):
 
 # 業績の悪い見出し（減益・下方修正・赤字・減額・減配）。業績が悪いのに株価が上がっている銘柄を探すのに使う
 WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
-# 「赤字縮小」「黒字浮上」など、良くなった決算は業績悪から外す
+# 「赤字縮小」「黒字浮上」など、良くなった決算は出尽くしから外す
 NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
-# 決算の発表からこれだけ上がった銘柄だけ、好決算・業績悪に載せる（%）。相場も好決算と見た銘柄に絞る
+# 決算の発表からこれだけ上がった銘柄だけ、好決算・出尽くしに載せる（%）。相場も好決算と見た銘柄に絞る
 MIN_MOVE = 5.0
 
 
@@ -197,12 +197,12 @@ def build(info, frames, log=print):
         weak_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                             "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     weak_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"業績悪・株価高: {len(weak_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
+    log(f"出尽くし: {len(weak_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
     return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
 
 
 # 米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から拾う。株探と違い GitHub Actions からも読める
-# 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。業績悪: 予想を US_MIN_SURPRISE % 以上下回った（さらに株価が上がっている）
+# 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。出尽くし: 予想を US_MIN_SURPRISE % 以上下回った（さらに株価が上がっている）
 US_MIN_SURPRISE = 10.0
 # 予想がこれより小さい（0に近い）と、少しの差でも何百%にもなるので外す（ドル）
 US_MIN_ESTIMATE = 0.10
@@ -305,7 +305,7 @@ def build_us(info, close, log=print):
         (stocks if good else weak_stocks).append(item)
     stocks.sort(key=lambda s: s["surprise"], reverse=True)
     weak_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"米国株の業績タブ: 好決算 {len(stocks):,} 銘柄、業績悪 {len(weak_stocks):,} 銘柄")
+    log(f"米国株の業績タブ: 好決算 {len(stocks):,} 銘柄、出尽くし {len(weak_stocks):,} 銘柄")
     return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
 
 
