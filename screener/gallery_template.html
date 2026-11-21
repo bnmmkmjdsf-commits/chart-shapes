@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 市場（日本株・米国株・★注目・持ち株）の切り替えと、その右に足（1時間足・日足・週足・月足）と向き（上抜け・下抜け）の切り替え（狭い画面では下の段に回る）
+/* レイアウト: 見出し → 業績・★注目・持ち株の切り替えと、その右に業績の市場（日本株・米国株）と業績良し・業績悪の切り替え（狭い画面では下の段に回る）
    → 線の凡例 → チャートのカード（スマホは1列、広い画面は3列まで） */
 :root {
   --bg: #f3f5f9;
@@ -20,7 +20,6 @@
   --muted: #5b6880;
   --accent: #2160d0;
   --on-accent: #ffffff;
-  --band: rgba(33, 96, 208, 0.12);
   --up: #d93f45;      /* 陽線（証券会社アプリと同じく赤） */
   --down: #2a6fdb;    /* 陰線（青） */
   --ma13: #b88700;
@@ -39,7 +38,6 @@
     --muted: #8f9bb2;
     --accent: #6b9fff;
     --on-accent: #0c1324;
-    --band: rgba(107, 159, 255, 0.16);
     --up: #f0656a;
     --down: #5b9bff;
     --ma13: #e6c34a;
@@ -57,7 +55,6 @@
   --muted: #8f9bb2;
   --accent: #6b9fff;
   --on-accent: #0c1324;
-  --band: rgba(107, 159, 255, 0.16);
   --up: #f0656a;
   --down: #5b9bff;
   --ma13: #e6c34a;
@@ -128,7 +125,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .legend .k13 { border-color: var(--ma13); }
 .legend .k26 { border-color: var(--ma26); }
 .legend .k52 { border-color: var(--ma52); }
-.legend .kband { width: 10px; height: 12px; border: 0; background: var(--band); }
 .listhead { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .listhead strong { color: var(--fg); font-size: 0.9375rem; margin-right: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 12px; }
@@ -179,7 +175,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .sector { margin-left: 8px; font-family: var(--font-body); }
 .card .price { margin-left: 8px; color: var(--fg); }
 .card svg { display: block; width: 100%; height: auto; margin-top: 6px; }
-.band { fill: var(--band); stroke: none; }
 /* 持ち株と注目: 抜けの札、銘柄を足す欄 */
 .badge { flex: none; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.cu { border-color: var(--up); color: var(--up); }
@@ -220,8 +215,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   font-size: 0.8125rem;
 }
 .transfer p { margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.6; overflow-wrap: anywhere; }
-.sechead { margin: 6px 0 0; font-size: 1rem; font-weight: 600; }
-.sechead span { margin-left: 8px; color: var(--muted); font-size: 0.75rem; font-weight: 400; }
 .card .nm { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .card .since { margin-top: 2px; font-family: var(--font-num); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .card .since b { font-weight: 500; }
@@ -238,24 +231,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="pinned">
   <header>
     <h1>PEREGRAPH</h1>
-    <p class="sub" id="sub">短期の移動平均線が中期線を抜けた銘柄</p>
+    <p class="sub" id="sub">決算の良かった銘柄</p>
   </header>
 
   <div class="tabs">
   <div class="market" role="tablist" aria-label="市場">
-    <button type="button" role="tab" id="tab-jp" data-market="jp" aria-selected="true">日本株</button>
-    <button type="button" role="tab" id="tab-us" data-market="us" aria-selected="false">米国株</button>
-    <button type="button" role="tab" id="tab-earn" data-market="earn" aria-selected="false">業績</button>
+    <button type="button" role="tab" id="tab-earn" data-market="earn" aria-selected="true">業績</button>
     <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 注目</button>
     <button type="button" role="tab" id="tab-hold" data-market="hold" aria-selected="false">持ち株</button>
   </div>
 
-  <div class="market" id="frames" role="tablist" aria-label="足の種類">
-    <button type="button" role="tab" data-frame="h" aria-selected="false">1時間</button>
-    <button type="button" role="tab" data-frame="d" aria-selected="false">日足</button>
-    <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
-    <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
-  </div>
   <div class="market" id="earnmarkets" role="tablist" aria-label="業績の市場" hidden>
     <button type="button" role="tab" data-earn-market="jp" aria-selected="true">日本株</button>
     <button type="button" role="tab" data-earn-market="us" aria-selected="false">米国株</button>
@@ -263,10 +248,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="market" id="shapes" role="tablist" aria-label="業績" hidden>
     <button type="button" role="tab" data-shape="good" aria-selected="true">業績良し</button>
     <button type="button" role="tab" data-shape="weak" aria-selected="false">業績悪</button>
-  </div>
-  <div class="market" id="kinds" role="tablist" aria-label="抜けた向き">
-    <button type="button" role="tab" data-kind="up" aria-selected="true">上抜け</button>
-    <button type="button" role="tab" data-kind="down" aria-selected="false">下抜け</button>
   </div>
   </div>
 
@@ -283,7 +264,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <p class="listhead" id="holdhead"></p>
   </div>
 
-  <h2 class="sechead" id="listtitle"></h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
     <p>☆はこの端末だけに残ります。全部の端末に出すときは、Claude に伝えてください。</p>
@@ -300,10 +280,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <script>
 const DATA = __DATA__;
 const STEP = 20;
-// kind は一覧に並べる向き（up が上抜け、down が下抜け）
+// market は開いているタブ（earn が業績、fav が注目、hold が持ち株）
+// frame はカードのチャートの足。決算のあとの動きが見えるように日足に決めている（ほかの足は、銘柄を押した先の株探で見る）
 // shape は業績タブで出す方（good が業績良し、weak が業績悪）
 // earnMarket は業績タブで出す市場
-const state = { market: "jp", frame: "w", kind: "up", shape: "good", earnMarket: "jp", shown: STEP };
+const state = { market: "earn", frame: "d", shape: "good", earnMarket: "jp", shown: STEP };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
   h: { name: "1時間足", ma: ["25本線", "75本線", "200本線"], sizes: [25, 75, 200], ago: "本前" },
@@ -403,8 +384,6 @@ function loadStock(market, code) {
   }
   return stockFiles.get(key);
 }
-// 持ち株があれば、初めに持ち株タブを開く
-if (allHolds().length && state.market === "jp") state.market = "hold";
 // コード（空白や読点で区切って複数可）を足す。全角は半角に、小文字は大文字にそろえ、日本株 → 米国株の順に探す
 function addHolds(text) {
   const codes = text.normalize("NFKC").toUpperCase().split(/[\s,、]+/).filter(Boolean);
@@ -470,8 +449,6 @@ function chart(s) {
   const y = (v) => P + ((max - v) / span) * (H - 2 * P);
   const f = (v) => v.toFixed(1);
 
-  // 抜けた足の帯は、抜けの一覧のカードだけに付ける（持ち株と注目のチャートには signal が無い）
-  const band = s.signal == null ? "" : `<rect class="band" x="${f(s.signal * step)}" y="0" width="${f(step)}" height="${H}"></rect>`;
   const line = (arr, cls) => {
     const pts = arr.map((v, i) => (v == null ? null : `${f(x(i))},${f(y(v))}`)).filter(Boolean).join(" ");
     return `<polyline class="${cls}" points="${pts}"></polyline>`;
@@ -486,11 +463,11 @@ function chart(s) {
     </g>`;
   }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ローソク足チャート">
-    ${band}${line(s.maL, "ma52")}${line(s.maM, "ma26")}${line(s.maS, "ma13")}${candles}
+    ${line(s.maL, "ma52")}${line(s.maM, "ma26")}${line(s.maS, "ma13")}${candles}
   </svg>`;
 }
 
-// カード。s は抜けの一覧の銘柄（チャートのデータ入り）か、持ち株・注目の銘柄（body にチャートか、チャートが無い理由）。
+// カード。s は銘柄（body にチャートか、チャートが無い理由）。
 // opts.own が true なら（持ち株・注目）抜けの札を出す。opts.since なら☆を付けてからの値動きを出す。
 // opts.drop なら、☆の代わりに持ち株から外す × を付ける
 function card(market, s, opts = {}) {
@@ -545,20 +522,14 @@ function render() {
   document.getElementById("hold").hidden = !isHold;
   document.getElementById("holdgrid").hidden = !isHold;
   grid.hidden = isHold;
-  const up = state.kind === "up";
-  document.getElementById("kinds").hidden = isFavTab || isHold || isEarn;
-  document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
-  document.getElementById("listtitle").hidden = isFavTab || isHold || isEarn;
   document.getElementById("transfer").hidden = !isFavTab;
   document.getElementById("notice").textContent = notice;
-  document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
   const lines = FRAMES[state.frame].ma;
   document.getElementById("legend").innerHTML =
-    `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`
-    + (isFavTab || isHold || isEarn ? "" : `<span><i class="kband"></i>抜けた足</span>`);
+    `<span><i class="k13"></i>${lines[0]}</span><span><i class="k26"></i>${lines[1]}</span><span><i class="k52"></i>${lines[2]}</span>`;
 
   if (isHold) {
-    sub.textContent = `持っている銘柄（${FRAMES[state.frame].name}）`;
+    sub.textContent = "持っている銘柄";
     head.innerHTML = "";
     grid.innerHTML = "";
     document.getElementById("more").hidden = true;
@@ -575,12 +546,12 @@ function render() {
     });
     const all = earnList(m, state.shape);
     const list = all.slice(0, state.shown);
-    const days = (DATA[m].earn || {}).days || 45, frame = FRAMES[state.frame].name;
+    const days = (DATA[m].earn || {}).days || 45;
     sub.textContent = isUs
-      ? (isWeak ? `直近${days}日の決算で1株利益が予想を大きく下回ったのに、発表から株価が上がっている米国株（${frame}）。上下のぶれが大きいので注意`
-        : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株（${frame}）`)
-      : (isWeak ? `株探の決算速報（直近${days}日）で業績が悪かったのに、発表から株価が上がっている日本株（${frame}）。上下のぶれが大きいので注意`
-        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株（${frame}）`);
+      ? (isWeak ? `直近${days}日の決算で1株利益が予想を大きく下回ったのに、発表から株価が上がっている米国株。上下のぶれが大きいので注意`
+        : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`)
+      : (isWeak ? `株探の決算速報（直近${days}日）で業績が悪かったのに、発表から株価が上がっている日本株。上下のぶれが大きいので注意`
+        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`);
     const order = isWeak ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
@@ -591,27 +562,14 @@ function render() {
   }
 
   if (isFavTab) {
-    sub.textContent = `☆を付けた注目の銘柄（新しく付けた順・${FRAMES[state.frame].name}）`;
+    sub.textContent = "☆を付けた注目の銘柄（新しく付けた順）";
     const crossed = favs.filter((f) => freshCrosses(f.market, f.code).length).length;
     head.innerHTML = favs.length ? `<strong>${favs.length}銘柄</strong>注目中${crossed ? `・平均線の抜け ${crossed}` : ""}` : "";
     grid.innerHTML = favs.length
       ? favs.map((f) => ownCard(f.market, f.code, { since: true }, f)).join("")
       : `<p class="empty">カードの☆を押すと、ここに残せます。</p>`;
     document.getElementById("more").hidden = true;
-    return;
   }
-
-  const frame = DATA[state.market].frames[state.frame];
-  const market = frame[state.kind];
-  const list = market.stocks.slice(0, state.shown);
-  const [short, mid] = FRAMES[state.frame].ma;
-  sub.textContent = `${short}が${mid}を抜けた銘柄（${frame.bar}の${FRAMES[state.frame].name}）`;
-  document.getElementById("listtitle").textContent = `${short}が${mid}を${up ? "上" : "下"}に抜けた`;
-  head.innerHTML = `<strong>${market.count.toLocaleString()}銘柄</strong>売買代金の上位200から・大きい順に${list.length}銘柄を表示`;
-  grid.innerHTML = list.length
-    ? list.map((s) => card(state.market, s)).join("")
-    : `<p class="empty">この足で${up ? "上" : "下"}に抜けた銘柄はありません。</p>`;
-  document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
 document.querySelector("main").addEventListener("click", (e) => {
@@ -635,20 +593,6 @@ document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
   if (!b) return;
   state.market = b.dataset.market;
-  state.shown = STEP;
-  render();
-});
-document.getElementById("frames").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-frame]");
-  if (!b) return;
-  state.frame = b.dataset.frame;
-  state.shown = STEP;
-  render();
-});
-document.getElementById("kinds").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-kind]");
-  if (!b) return;
-  state.kind = b.dataset.kind;
   state.shown = STEP;
   render();
 });
