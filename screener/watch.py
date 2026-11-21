@@ -2,7 +2,7 @@
 
 どの端末で開いても同じ銘柄が出るよう、持ち株と注目はブラウザではなく watch.json に持つ。
 {"hold": {"jp": [コード, ...], "us": [...]}, "fav": {"jp": [{"code", "price", "from"}, ...], "us": [...]}}
-注目の price と from は、☆を付けた日の株価と日付。取引時間中の更新は、ここの銘柄の1時間足も取り直す。
+注目の price と from は、☆を付けた日の株価と日付。
 """
 import json
 from pathlib import Path
