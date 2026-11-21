@@ -256,6 +256,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
     <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
   </div>
+  <div class="market" id="earnmarkets" role="tablist" aria-label="業績の市場" hidden>
+    <button type="button" role="tab" data-earn-market="jp" aria-selected="true">日本株</button>
+    <button type="button" role="tab" data-earn-market="us" aria-selected="false">米国株</button>
+  </div>
   <div class="market" id="shapes" role="tablist" aria-label="業績" hidden>
     <button type="button" role="tab" data-shape="good" aria-selected="true">業績良し</button>
     <button type="button" role="tab" data-shape="weak" aria-selected="false">業績悪</button>
@@ -298,7 +302,8 @@ const DATA = __DATA__;
 const STEP = 20;
 // kind は一覧に並べる向き（up が上抜け、down が下抜け）
 // shape は業績タブで出す方（good が業績良し、weak が業績悪）
-const state = { market: "jp", frame: "w", kind: "up", shape: "good", shown: STEP };
+// earnMarket は業績タブで出す市場
+const state = { market: "jp", frame: "w", kind: "up", shape: "good", earnMarket: "jp", shown: STEP };
 // 足の種類。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
   h: { name: "1時間足", ma: ["25本線", "75本線", "200本線"], sizes: [25, 75, 200], ago: "本前" },
@@ -320,22 +325,10 @@ const detailUrl = (market, code) => market === "jp"
 
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
-// ☆を付けるときに、名前と業種を引くための銘柄（抜けの一覧のどこかにある）
-function findStock(market, code) {
-  for (const frame of ["h", "d", "w", "m"]) {
-    for (const kind of ["up", "down"]) {
-      const s = DATA[market].frames[frame][kind].stocks.find((x) => x.code === code);
-      if (s) return s;
-    }
-  }
-  return earnOf(market, code);
-}
-// 業績タブ（株探の決算速報から、業績の強い日本株）。DATA.jp.earn.stocks は強い順。
-const EARN = (DATA.jp.earn && DATA.jp.earn.stocks) || [];
-const earnOf = (market, code) => (market === "jp" ? EARN.find((s) => s.code === code) || null : null);
+// 業績タブ。DATA[市場].earn の stocks が業績良し（強い順）、weak が業績悪（決算のあと株価が上がった順）。
+// 日本株は株探の決算速報、米国株は Yahoo Finance の1株利益の予想と実績から拾っている
 const SHAPES = { good: "業績良し", weak: "業績悪" };
-// 業績が悪い決算のあとに、株価が上がっている銘柄（上がった順）
-const WEAK = (DATA.jp.earn && DATA.jp.earn.weak) || [];
+const earnList = (market, shape) => ((DATA[market].earn || {})[shape === "weak" ? "weak" : "stocks"]) || [];
 // 抜けの札。日足・週足・月足のそれぞれで、短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
 // DATA[市場].cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き（上抜けが1）, 何本前か]}}
 const FRESH = { h: 6, d: 2, w: 1, m: 0 };
@@ -548,6 +541,7 @@ function render() {
   const isHold = state.market === "hold";
   const isEarn = state.market === "earn";
   document.getElementById("shapes").hidden = !isEarn;
+  document.getElementById("earnmarkets").hidden = !isEarn;
   document.getElementById("hold").hidden = !isHold;
   document.getElementById("holdgrid").hidden = !isHold;
   grid.hidden = isHold;
@@ -573,23 +567,25 @@ function render() {
   }
 
   if (isEarn) {
+    const m = state.earnMarket, isWeak = state.shape === "weak", isUs = m === "us";
+    document.querySelectorAll("[data-earn-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.earnMarket === m)));
     document.querySelectorAll("[data-shape]").forEach((b) => {
-      b.textContent = `${SHAPES[b.dataset.shape]} ${(b.dataset.shape === "weak" ? WEAK : EARN).length}`;
+      b.textContent = `${SHAPES[b.dataset.shape]} ${earnList(m, b.dataset.shape).length}`;
       b.setAttribute("aria-selected", String(b.dataset.shape === state.shape));
     });
-    const isWeak = state.shape === "weak";
-    const all = isWeak ? WEAK : EARN;
+    const all = earnList(m, state.shape);
     const list = all.slice(0, state.shown);
-    sub.textContent = isWeak
-      ? `株探の決算速報（直近${(DATA.jp.earn || {}).days || 45}日）で業績が悪かったのに、発表から株価が上がっている日本株（${FRAMES[state.frame].name}）。上下のぶれが大きいので注意`
-      : `株探の決算速報（直近${(DATA.jp.earn || {}).days || 45}日）で業績の強い日本株（${FRAMES[state.frame].name}）`;
-    head.innerHTML = isWeak ? (WEAK.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>発表からの上がり方が大きい順に${list.length}銘柄を表示` : "")
-      : EARN.length
-      ? `<strong>${all.length.toLocaleString()}銘柄</strong>最高益・上方修正・増配の多い順に${list.length}銘柄を表示`
-      : "";
+    const days = (DATA[m].earn || {}).days || 45, frame = FRAMES[state.frame].name;
+    sub.textContent = isUs
+      ? (isWeak ? `直近${days}日の決算で1株利益が予想を大きく下回ったのに、発表から株価が上がっている米国株（${frame}）。上下のぶれが大きいので注意`
+        : `直近${days}日の決算で、1株利益が予想を大きく上回った米国株（${frame}）`)
+      : (isWeak ? `株探の決算速報（直近${days}日）で業績が悪かったのに、発表から株価が上がっている日本株（${frame}）。上下のぶれが大きいので注意`
+        : `株探の決算速報（直近${days}日）で業績の強い日本株（${frame}）`);
+    const order = isWeak ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
+    head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
-      ? list.map((s) => ownCard("jp", s.code, { note: s }, s)).join("")
-      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : "株探の決算速報を、いま読めていません。"}</p>`;
+      ? list.map((s) => ownCard(m, s.code, { note: s }, s)).join("")
+      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : "決算のデータを、いま読めていません。"}</p>`;
     document.getElementById("more").hidden = state.shown >= all.length;
     return;
   }
@@ -653,6 +649,13 @@ document.getElementById("kinds").addEventListener("click", (e) => {
   const b = e.target.closest("[data-kind]");
   if (!b) return;
   state.kind = b.dataset.kind;
+  state.shown = STEP;
+  render();
+});
+document.getElementById("earnmarkets").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-earn-market]");
+  if (!b) return;
+  state.earnMarket = b.dataset.earnMarket;
   state.shown = STEP;
   render();
 });

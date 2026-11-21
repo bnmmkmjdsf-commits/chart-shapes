@@ -280,6 +280,13 @@ def _build(market, log, site):
     if market == "jp":
         # 業績タブ（株探の決算速報で業績の良い銘柄と、業績が悪いのに株価が上がっている銘柄）
         result["earn"] = earnings.build(info, {"d": daily}, log)
+    else:
+        # 米国株の業績タブ（Yahoo Finance の決算の予定表で、1株利益が予想を大きく上回った・下回った銘柄）。読めなくても止めない
+        try:
+            result["earn"] = earnings.build_us(info, daily["close"], log)
+        except Exception as error:
+            log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は空にします")
+            result["earn"] = {"days": earnings.DAYS, "stocks": [], "weak": []}
     return result
 
 

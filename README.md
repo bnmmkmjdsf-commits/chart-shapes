@@ -70,6 +70,13 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 - 業績悪: 減益・下方修正・赤字の決算（赤字縮小・黒字浮上・増益などの良くなった決算は除く）のあと、発表から5%以上株価が上がっている銘柄（上がった順）。ぶれが大きいので注意。`earnings.json` の `weak` を使う（`weak` が無い古い `earnings.json` なら、自動で1回だけ全部読み直す）
 - 条件は `screener/earnings.py` の先頭にある
 
+米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から、直近45日に決算を出した時価総額3億ドル以上の銘柄を拾う（業績タブの「日本株／米国株」で切り替え）。
+
+- 業績良し: 黒字で、1株利益が予想を10%以上上回った銘柄（上回った幅の大きい順）
+- 業績悪: 1株利益が予想を10%以上下回ったのに、発表から5%以上株価が上がっている銘柄（上がった順）
+- 予想が0.10ドルより小さい銘柄は外す（少しの差でも何百%にもなるため）
+- 米国株の更新（朝7:00）のときに GitHub Actions が読む。読めないときは米国株の業績タブが空になる（ほかは止まらない）
+
 ## 更新のしかた
 
 `.github/workflows/update.yml` が動かす。
@@ -100,7 +107,7 @@ Windows のパス長制限を避けるため、仮想環境はプロジェクト
 | `screener/prices.py` | Yahoo のスクリーナー API から株価・時価総額（米国・日本）、yfinance でローソク足（日足・月足）。週足は日足から作る |
 | `screener/jpx.py` | JPX の東証上場銘柄一覧から、日本語の銘柄名・33業種 |
 | `screener/cross.py` | 移動平均と、短期線が中期線を抜けたかの判定 |
-| `screener/earnings.py`, `earnings.json` | 株探の決算速報から業績の良い銘柄と悪い銘柄を拾う（earnings.json に保存） |
+| `screener/earnings.py`, `earnings.json` | 株探の決算速報（日本株）と Yahoo Finance の決算の予定表（米国株）から、業績の良い銘柄と悪い銘柄を拾う |
 | `screener/gallery.py`, `screener/gallery_template.html` | ページの書き出しと、ページの見た目 |
 | `screener/watch.py`, `watch.json` | 持ち株と注目の銘柄（どの端末にも出す共通の一覧） |
 | `screener/published.py`, `screener/retemplate.py` | 公開中のページのデータを取り出す・それを使ってページだけ作り直す |

@@ -199,6 +199,82 @@ def build(info, frames, log=print):
     return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
 
 
+# 米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から拾う。株探と違い GitHub Actions からも読める
+# 業績良し: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。業績悪: 予想を US_MIN_SURPRISE % 以上下回った（さらに株価が上がっている）
+US_MIN_SURPRISE = 10.0
+# 予想がこれより小さい（0に近い）と、少しの差でも何百%にもなるので外す（ドル）
+US_MIN_ESTIMATE = 0.10
+US_MIN_MARKET_CAP = 3e8
+
+
+def us_reports(log=print, days=DAYS):
+    """直近 days 日に決算を出した米国株の、1株利益の予想と実績（銘柄ごとに一番新しい決算）。読めないときは空の表"""
+    import yfinance as yf
+
+    end = pd.Timestamp.now("America/New_York").normalize() + pd.Timedelta(days=1)
+    start = end - pd.Timedelta(days=days + 1)
+    calendar = yf.Calendars(start=f"{start:%Y-%m-%d}", end=f"{end:%Y-%m-%d}")
+    parts = []
+    for page in range(100):  # 1回に100社まで。時価総額の大きい順に読んでいく
+        try:
+            part = calendar.get_earnings_calendar(market_cap=US_MIN_MARKET_CAP, filter_most_active=False,
+                                                  limit=100, offset=page * 100, force=True)
+        except Exception as error:
+            log(f"  米国株の決算の予定表の {page + 1} ページ目が読めません（{error}）")
+            break
+        if part is None or part.empty:
+            break
+        parts.append(part.reset_index())
+        if len(part) < 100:
+            break
+        time.sleep(0.5)
+    if not parts:
+        return pd.DataFrame()
+    table = pd.concat(parts, ignore_index=True).dropna(subset=["Reported EPS", "EPS Estimate"])
+    when = pd.to_datetime(table["Event Start Date"], utc=True).dt.tz_convert("America/New_York")
+    table = table.assign(when=when).sort_values("when", ascending=False).drop_duplicates("Symbol")
+    log(f"米国株の決算: {len(table):,} 社（直近 {days} 日・時価総額 {US_MIN_MARKET_CAP / 1e8:g}億ドル以上）")
+    return table
+
+
+def us_move_since(when, timing, close):
+    """米国株の、決算を出した日からの株価の動き（%）。引け後（AMC）の決算はその日の終値から、ほかは前の営業日の終値から見る"""
+    close = close.dropna()
+    day = pd.Timestamp(when.date())
+    before = close[close.index <= day] if timing == "AMC" else close[close.index < day]
+    if before.empty or close.index[-1] <= before.index[-1]:
+        return None
+    return round(float((close.iloc[-1] / before.iloc[-1] - 1) * 100), 1)
+
+
+def build_us(info, close, log=print):
+    """米国株の業績タブのデータ。close は日足の終値の表。形は build と同じ {"days", "stocks", "weak"}"""
+    stocks, weak_stocks = [], []
+    for _, r in us_reports(log).iterrows():
+        symbol, est, actual, surprise = r["Symbol"], r["EPS Estimate"], r["Reported EPS"], r.get("Surprise(%)")
+        if symbol not in info.index or abs(est) < US_MIN_ESTIMATE:
+            continue
+        if pd.isna(surprise):
+            surprise = (actual / est - 1) * 100 * (1 if est > 0 else -1)
+        good = actual > 0 and surprise >= US_MIN_SURPRISE
+        bad = surprise <= -US_MIN_SURPRISE
+        if not (good or bad):
+            continue
+        move = us_move_since(r["when"], r.get("Timing"), close[symbol]) if symbol in close.columns else None
+        if bad and (move is None or move < WEAK_MIN_MOVE):
+            continue
+        row = info.loc[symbol]
+        item = {"code": row["code"], "date": f"{r['when'].month}/{r['when'].day:02d}",
+                "title": f"1株利益 {actual:.2f}ドル（予想 {est:.2f}ドルを {abs(surprise):.0f}% {'上回る' if good else '下回る'}）",
+                "surprise": round(float(surprise), 1), "move": move,
+                "name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"]}
+        (stocks if good else weak_stocks).append(item)
+    stocks.sort(key=lambda s: s["surprise"], reverse=True)
+    weak_stocks.sort(key=lambda s: s["move"], reverse=True)
+    log(f"米国株の業績タブ: 業績良し {len(stocks):,} 銘柄、業績悪 {len(weak_stocks):,} 銘柄")
+    return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
+
+
 def load(log=print):
     """earnings.json の、直近 DAYS 日の業績の強い銘柄（強い順）。無い・読めないときは空"""
     try:
