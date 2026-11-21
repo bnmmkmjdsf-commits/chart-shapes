@@ -1,7 +1,7 @@
 # PEREGRAPH
 
 1時間足・日足・週足・月足で、短期の移動平均線が中期線を上に抜けた・下に抜けた銘柄を、日本株・米国株それぞれチャートで並べたページ。
-持っている銘柄の「持ち株」タブ、気になる銘柄の「★ 注目」タブもあり（どちらも `watch.json` に持ち、ページで足し外しするとどの端末にも出る）、どちらも同じチャートと、抜けたばかりのときの札が出る。
+持っている銘柄の「持ち株」タブ、気になる銘柄の「★ 注目」タブもあり（どちらも `watch.json` に書いた銘柄が、どの端末にも出る）、どちらも同じチャートと、抜けたばかりのときの札が出る。
 無料のデータ（Yahoo Finance と JPX）だけで作り、GitHub Actions が平日に更新して GitHub Pages で公開している。
 
 https://bnmmkmjdsf-commits.github.io/chart-shapes/
@@ -33,17 +33,8 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 
 日経平均（コード `N225`）とナスダック100（`NDX`）は、注目に最初から入れてある。指数は `screener/gallery.py` の `INDEXES` に書くと、同じようにチャートと札が出る（一覧の200銘柄には入らない）。
 
-「持ち株」と「★ 注目」に出す銘柄は、リポジトリの `watch.json` に持つ。ページがそれを読むので、どの端末で開いても同じ銘柄が出る。
-
-ふだんはページで足し外しする（☆、持ち株タブの「足す」と ×）。押すとページが GitHub の `watch.json` を直接書き換え、1分ほどでページが作り直されて、どの端末にも出る。
-書き換えには合言葉（GitHub のトークン）が要る。端末ごとに初めて押したときに聞かれ、その端末のブラウザ（localStorage の `github-token-v1`）に残る。
-
-合言葉の作り方（1回だけ。同じものをどの端末にも貼ってよい）:
-
-1. GitHub の Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token
-2. Repository access は「Only select repositories」で `chart-shapes` だけを選ぶ
-3. Permissions の Contents を「Read and write」にする
-4. 期限（Expiration）は長めにする。切れたら、ページが「もう一度入れてください」と出すので作り直す
+「持ち株」と「★ 注目」に出す銘柄は、リポジトリの `watch.json` に書く（共通の一覧）。ページがそれを読むので、どの端末で開いても同じ銘柄が出る。
+変えるときは Claude に「○○を注目に入れて」「○○を外して」と伝えて書き換えてもらう。main に入ると、1分ほどで見た目だけ作り直される。
 
 ```json
 {
@@ -54,10 +45,10 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 
 - 持ち株はコードだけ。注目は、☆を付けた日の株価（price）と日付（from）も持ち、そこから今までの値動きを出す
 - どちらのカードも、一覧と同じチャート（1時間足・日足・週足・月足を切り替えられる）と、抜けたばかりのときの札が出る。持ち株は、抜けたばかりの銘柄が先に並ぶ
-- `watch.json` を直接書き換えても、main に入れば見た目だけの作り直しで反映される
 - 取引時間中の更新は、ここの銘柄の1時間足も取り直す（売買代金の上位200の外でも）
 - リポジトリは公開なので、ここに書いたコードは誰でも見られる（株数や買値は書かない）
-- 以前この端末だけに保存していた☆と持ち株（`favorites-v1`・`holdings-v1`）は、合言葉を入れたときに `watch.json` へ移す
+
+ページの☆・「足す」・× は、その端末だけに残る（ブラウザの localStorage。足した銘柄は `favorites-v1`・`holdings-v1`、共通の一覧から外した銘柄は `hidden-v1`）。
 
 ## 銘柄ごとのファイル
 

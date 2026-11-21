@@ -279,7 +279,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="stack" id="hold" hidden>
     <form class="transfer" id="holdform">
       <div class="holdadd">
-        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="コードを入れて足す（例: 7203 AAPL）">
+        <input id="holdcode" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" aria-label="持っている銘柄のコード" placeholder="この端末に足す（例: 7203 AAPL）">
         <button type="submit">足す</button>
       </div>
       <p id="holdnotice" aria-live="polite"></p>
@@ -290,7 +290,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <h2 class="sechead" id="listtitle"></h2>
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
-    <button type="button" id="token">合言葉を入れる</button>
+    <p>☆はこの端末だけに残ります。全部の端末に出すときは、Claude に伝えてください。</p>
     <p id="notice" aria-live="polite"></p>
   </div>
   </div>
@@ -371,111 +371,49 @@ function freshCrosses(market, code) {
 }
 const crossBadges = (market, code) => freshCrosses(market, code).map((c) =>
   `<span class="badge ${c.up ? "cu" : "cd"}">${FRAMES[c.frame].name} ${c.up ? "上抜け" : "下抜け"}${c.ago ? `（${c.ago}${FRAMES[c.frame].ago}）` : ""}</span>`).join("");
-// 持ち株と注目は watch.json に持ち、どの端末にも同じものを出す。ページには作ったときの中身が入っている（DATA[市場].shared）。
-// 合言葉（GitHub の書き込み用トークン）をこの端末に入れておくと、☆・「足す」・× でそのまま watch.json を書き換える。
-// main の watch.json が変わると、ページが作り直されて（1分ほど）、ほかの端末にも出る
-const REPO = "bnmmkmjdsf-commits/chart-shapes";
-const TOKEN_KEY = "github-token-v1";
-let token = (() => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } })();
-let watch = { hold: {}, fav: {} };
+// 持ち株と注目は、watch.json の共通の一覧（どの端末にも出る。DATA[市場].shared）に、この端末での足し外しを重ねて出す。
+// この端末の分はブラウザに保存する: 足した銘柄（favorites-v1・holdings-v1）と、共通の一覧から外した銘柄（hidden-v1）。
+// 共通の一覧を変えるときは、Claude に伝えて watch.json を書き換えてもらう
+const FAV_KEY = "favorites-v1", HOLD_KEY = "holdings-v1", HIDDEN_KEY = "hidden-v1";
+const loadList = (key, empty) => { try { return JSON.parse(localStorage.getItem(key)) || empty; } catch { return empty; } };
+let favs = loadList(FAV_KEY, []), holds = loadList(HOLD_KEY, []), hiddenShared = loadList(HIDDEN_KEY, { fav: [], hold: [] });
+const saveLists = () => {
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+    localStorage.setItem(HOLD_KEY, JSON.stringify(holds));
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(hiddenShared));
+  } catch {}
+};
+const SHARED = { fav: [], hold: [] };
 for (const market of ["jp", "us"]) {
   const lists = DATA[market].shared || {};
-  watch.hold[market] = [...(lists.hold || [])];
-  watch.fav[market] = [...(lists.fav || [])];
+  SHARED.hold.push(...(lists.hold || []).map((code) => ({ market, code })));
+  SHARED.fav.push(...(lists.fav || []).map((f) => ({ market, ...f })));
 }
-const allFavs = () => ["jp", "us"].flatMap((market) => (watch.fav[market] || []).map((f) => ({ market, ...f })));
-const allHolds = () => ["jp", "us"].flatMap((market) => (watch.hold[market] || []).map((code) => ({ market, code })));
-const favOf = (market, code) => allFavs().find((f) => f.market === market && f.code === code);
-const hasHold = (market, code) => (watch.hold[market] || []).includes(code);
-let notice = "", holdNotice = "";
-const tell = (message) => { notice = holdNotice = message; render(); };
-// watch.json を、今のファイルと同じ書き方（1銘柄1行）で書き出す
-function watchText(w) {
-  const codes = (list) => `[${(list || []).map((c) => JSON.stringify(c)).join(", ")}]`;
-  const favs = (list) => (list && list.length
-    ? `[\n${list.map((f) => `      {"code": ${JSON.stringify(f.code)}, "price": ${f.price || 0}, "from": ${JSON.stringify(f.from || "")}}`).join(",\n")}\n    ]`
-    : "[]");
-  return `{\n  "hold": {\n    "jp": ${codes(w.hold.jp)},\n    "us": ${codes(w.hold.us)}\n  },\n  "fav": {\n    "jp": ${favs(w.fav.jp)},\n    "us": ${favs(w.fav.us)}\n  }\n}\n`;
-}
-const toBase64 = (text) => btoa(Array.from(new TextEncoder().encode(text), (b) => String.fromCharCode(b)).join(""));
-const fromBase64 = (text) => new TextDecoder().decode(Uint8Array.from(atob(text.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
-// GitHub の watch.json を読む（method が PUT なら書く）。失敗したら HTTP の番号を投げる
-async function watchFile(method = "GET", body) {
-  const res = await fetch(`https://api.github.com/repos/${REPO}/contents/watch.json`, {
-    method, cache: "no-store", body: body && JSON.stringify(body),
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!res.ok) throw res.status;
-  const data = await res.json();
-  if (method === "GET") data.watch = JSON.parse(fromBase64(data.content));
-  return data;
-}
-// change(w) で中身を書き換えて保存する。画面はすぐ変え、保存は最新の watch.json を読んでから当てる
-// （ほかの端末の変更を消さないため）。続けて押しても、1つずつ順に保存する
-let saving = Promise.resolve();
-function saveWatch(change, message) {
-  change(watch);
-  render();
-  saving = saving.then(async () => {
-    for (let tries = 0; ; tries++) {
-      try {
-        const now = await watchFile();
-        change(now.watch);
-        await watchFile("PUT", { message, content: toBase64(watchText(now.watch)), sha: now.sha });
-        return;
-      } catch (status) {
-        if (status === 409 && tries < 2) continue;  // ほかの端末と同時に保存したときは、読み直してやり直す
-        throw status;
-      }
-    }
-  }).catch((status) => {
-    if (status === 401) forgetToken();
-    tell(status === 401 ? "合言葉が使えなくなっています。もう一度入れてください。"
-      : status === 403 || status === 404 ? "合言葉に書き込みの許可がありません（作るときに Contents を Read and write にしてください）。"
-        : "保存できませんでした。通信を確かめて、もう一度押してください。");
-    if (token) watchFile().then((now) => { watch = now.watch; render(); }).catch(() => {});
-  });
-}
-function forgetToken() {
-  token = "";
-  try { localStorage.removeItem(TOKEN_KEY); } catch {}
-}
-// 合言葉が無ければ聞く。入れてもらえたら true
-async function ensureToken() {
-  if (token) return true;
-  const input = (prompt("合言葉（GitHub のトークン）を貼り付けてください。この端末に保存され、☆と持ち株の足し外しが、どの端末にも出るようになります。") || "").trim();
-  if (!input) return false;
-  token = input;
-  try {
-    watch = (await watchFile()).watch;
-  } catch {
-    forgetToken();
-    tell("合言葉が違うようです。もう一度確かめてください。");
-    return false;
+const sameStock = (market, code) => (x) => x.market === market && x.code === code;
+const listKey = (market, code) => `${market}|${code}`;
+const isShared = (kind, market, code) => SHARED[kind].some(sameStock(market, code));
+const isHidden = (kind, market, code) => hiddenShared[kind].includes(listKey(market, code));
+// 注目は、この端末で足した銘柄（新しく付けた順）の後ろに共通の銘柄。持ち株は、共通の銘柄の後ろにこの端末で足した銘柄
+const allFavs = () => [...favs.filter((f) => !isShared("fav", f.market, f.code)), ...SHARED.fav.filter((f) => !isHidden("fav", f.market, f.code))];
+const allHolds = () => [...SHARED.hold.filter((h) => !isHidden("hold", h.market, h.code)), ...holds.filter((h) => !isShared("hold", h.market, h.code))];
+const favOf = (market, code) => allFavs().find(sameStock(market, code));
+const hasHold = (market, code) => allHolds().some(sameStock(market, code));
+// 足す（on）・外す。共通の一覧の銘柄は、この端末で隠す・隠すのをやめる
+function setListed(kind, market, code, on, entry) {
+  if (isShared(kind, market, code)) {
+    hiddenShared[kind] = hiddenShared[kind].filter((k) => k !== listKey(market, code));
+    if (!on) hiddenShared[kind].push(listKey(market, code));
+  } else if (kind === "fav") {
+    favs = favs.filter((x) => !sameStock(market, code)(x));
+    if (on) favs.unshift(entry);
+  } else {
+    holds = holds.filter((x) => !sameStock(market, code)(x));
+    if (on) holds.push(entry);
   }
-  try { localStorage.setItem(TOKEN_KEY, token); } catch {}
-  tell("合言葉を入れました。");
-  moveLocalLists();
-  return true;
+  saveLists();
 }
-// 以前この端末だけに保存していた☆と持ち株を、watch.json に移す
-function moveLocalLists() {
-  const old = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
-  const favs = old("favorites-v1").filter((f) => f && (f.market === "jp" || f.market === "us") && f.code);
-  const holds = old("holdings-v1").filter((h) => h && (h.market === "jp" || h.market === "us") && h.code);
-  try { localStorage.removeItem("favorites-v1"); localStorage.removeItem("holdings-v1"); } catch {}
-  if (!favs.length && !holds.length) return;
-  saveWatch((w) => {
-    for (const f of favs) {
-      if (!w.fav[f.market].some((x) => x.code === String(f.code))) {
-        w.fav[f.market].push({ code: String(f.code), price: f.price || priceOf(f.market, String(f.code)) || 0, from: f.from || today() });
-      }
-    }
-    for (const h of holds) if (!w.hold[h.market].includes(String(h.code))) w.hold[h.market].push(String(h.code));
-  }, "この端末だけにあった☆と持ち株を watch.json に移す");
-}
-// 合言葉があれば、ページが作り直される前でも最新の watch.json を出す
-if (token) watchFile().then((now) => { watch = now.watch; render(); }).catch(() => {});
+let notice = "", holdNotice = "";
 // 持ち株と注目のチャートは、銘柄ごとのファイル（s/市場/コード.json）から読む。全銘柄ぶんをページに持たせると重いため。
 // stockFiles の値は、読めたらその中身、読み込み中は "loading"、無い・読めないときは null
 const stockFiles = new Map();
@@ -509,16 +447,12 @@ function addHolds(text) {
     else if (hasHold(market, code) || added.some((a) => a.code === code)) dup.push(code);
     else added.push({ market, code });
   }
-  if (added.length) {
-    saveWatch((w) => {
-      for (const a of added) if (!w.hold[a.market].includes(a.code)) w.hold[a.market].push(a.code);
-    }, `持ち株に ${added.map((a) => a.code).join("・")} を足す`);
-  }
-  tell([
+  for (const a of added) setListed("hold", a.market, a.code, true, a);
+  holdNotice = [
     added.length ? `${added.map((a) => a.code).join("・")} を足しました。` : "",
     dup.length ? `${dup.join("・")} はもう入っています。` : "",
     missing.length ? `${missing.join("・")} は見つかりませんでした（コードの打ち間違いか、対象外の銘柄です）。` : "",
-  ].filter(Boolean).join(" "));
+  ].filter(Boolean).join(" ");
   return !missing.length;
 }
 // 持ち株と注目のカードのチャート（ローソク足と移動平均）。s は銘柄ごとのファイルの、1つの足の種類ぶん。
@@ -551,22 +485,11 @@ function renderHold() {
   document.getElementById("holdnotice").textContent = holdNotice;
 }
 
-async function toggleFav(market, code) {
-  if (!(await ensureToken())) return;
+function toggleFav(market, code) {
   const on = !favOf(market, code);
-  const entry = { code, price: priceOf(market, code) || 0, from: today() };
-  saveWatch((w) => {
-    const list = w.fav[market];
-    const i = list.findIndex((f) => f.code === code);
-    if (!on && i >= 0) list.splice(i, 1);
-    if (on && i < 0) {
-      // 新しく付けた順。先頭の指数（日付が無い）のすぐ後ろに入れる
-      let at = 0;
-      while (at < list.length && !list[at].from) at++;
-      list.splice(at, 0, entry);
-    }
-  }, `注目${on ? "に" : "から"} ${code} を${on ? "入れる" : "外す"}`);
-  tell(`${code} を注目${on ? "に入れました" : "から外しました"}。`);
+  setListed("fav", market, code, on, { market, code, price: priceOf(market, code), from: today(), added: today() });
+  notice = `${code} を注目${on ? "に入れました" : "から外しました"}。`;
+  render();
 }
 
 function chart(s) {
@@ -659,7 +582,6 @@ function render() {
   document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.kind === state.kind)));
   document.getElementById("listtitle").hidden = isFavTab || isHold || isEarn;
   document.getElementById("transfer").hidden = !isFavTab;
-  document.getElementById("token").hidden = Boolean(token);
   document.getElementById("notice").textContent = notice;
   document.querySelectorAll("[data-frame]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.frame === state.frame)));
   const lines = FRAMES[state.frame].ma;
@@ -724,22 +646,22 @@ function render() {
   document.getElementById("more").hidden = state.shown >= market.stocks.length;
 }
 
-document.getElementById("token").addEventListener("click", ensureToken);
-document.querySelector("main").addEventListener("click", async (e) => {
+document.querySelector("main").addEventListener("click", (e) => {
   const b = e.target.closest(".star:not(.drop)");
   if (b) toggleFav(b.dataset.favMarket, b.dataset.code);
   const drop = e.target.closest(".drop");
-  if (drop && (await ensureToken())) {
-    const { holdMarket: market, code } = drop.dataset;
-    saveWatch((w) => { w.hold[market] = w.hold[market].filter((c) => c !== code); }, `持ち株から ${code} を外す`);
-    tell(`${code} を外しました。`);
+  if (drop) {
+    setListed("hold", drop.dataset.holdMarket, drop.dataset.code, false);
+    holdNotice = `${drop.dataset.code} を外しました。`;
+    render();
   }
 });
-document.getElementById("holdform").addEventListener("submit", async (e) => {
+document.getElementById("holdform").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = document.getElementById("holdcode");
-  if (!input.value.trim() || !(await ensureToken())) return;
+  if (!input.value.trim()) return;
   if (addHolds(input.value)) input.value = "";
+  render();
 });
 document.querySelector(".market").addEventListener("click", (e) => {
   const b = e.target.closest("[data-market]");
