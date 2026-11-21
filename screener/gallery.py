@@ -285,8 +285,8 @@ def _build(market, log, site):
         try:
             result["earn"] = earnings.build_us(info, daily["close"], log)
         except Exception as error:
-            log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は空にします")
-            result["earn"] = {"days": earnings.DAYS, "stocks": [], "weak": []}
+            log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は、公開中のページのものを残します")
+            result["earn"] = _published_us_earn(log)
     return result
 
 
@@ -324,6 +324,18 @@ def _hourly(market, data, log, site):
             "name": info.at[symbol, "name"], "sector": info.at[symbol, "sector"]}
         _write_stock(folder, code, {**known, "h": chart})
     return data
+
+
+def _published_us_earn(log):
+    """米国株の決算が読めなかったときの代わり。公開中のページの業績タブ（米国株）を、今の決まりで絞り直して使う"""
+    empty = {"days": earnings.DAYS, "stocks": [], "weak": []}
+    try:
+        earn = json.loads(published.payload())["us"]["earn"]
+    except Exception as error:
+        log(f"  公開中のページの米国株の業績も使えません（{error}）。空にします")
+        return empty
+    keep = lambda items: [s for s in items if s.get("move") is not None and s["move"] >= earnings.MIN_MOVE]
+    return {**empty, **earn, "stocks": keep(earn.get("stocks", [])), "weak": keep(earn.get("weak", []))}
 
 
 def _published(log):
