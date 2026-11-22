@@ -64,9 +64,6 @@ jobs:
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
       # main 以外では公開せず、作ったページを Actions の成果物として残す（gh run download で取れる）
-      - name: TEMP 売買代金の一覧を出す
-        if: github.ref != 'refs/heads/main'
-        run: for m in jp us; do echo "LIQ_$m $(cat site/s/$m/_liquid.json)"; done
       - name: 試し用のページを残す
         if: github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
