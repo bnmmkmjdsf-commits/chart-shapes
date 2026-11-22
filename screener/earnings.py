@@ -128,10 +128,46 @@ def strong(items):
 
 # 業績の悪い見出し（減益・下方修正・赤字・減額・減配）。業績が悪いのに株価が上がっている銘柄を探すのに使う
 WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
-# 「赤字縮小」「黒字浮上」など、良くなった決算は出尽くしから外す
+# 「赤字縮小」「黒字浮上」など、良くなった決算は業績の悪い見出しから外す
 NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
-# 決算の発表からこれだけ上がった銘柄だけ、好決算・出尽くしに載せる（%）。相場も好決算と見た銘柄に絞る
+# 良くなった決算の見出し（改善）。好決算（点数 MIN_SCORE 以上）に入らなかったものを、業績タブの「改善」に載せる
+IMPROVE = re.compile(r"赤字縮小|黒字浮上|黒字転換|増益|上方修正|増配|増額")
+# 決算の発表からこれだけ上がった銘柄だけ、好決算・改善に載せる（%）。相場も良い決算と見た銘柄に絞る
 MIN_MOVE = 5.0
+
+
+def improving(title):
+    """良くなった決算の見出しか（好決算に入るものは除く）。
+
+    見出しの前半（「・」より前）で見る。下方修正・減配・未定は外す。「減益」「赤字」は、
+    「減益幅縮小」「赤字縮小」「黒字浮上」のように良くなっているときだけ残す
+    """
+    main = title.split("・")[0]
+    if not IMPROVE.search(main) or re.search(r"下方修正|減配|減額|未定に", main):
+        return False
+    if "減益" in main and "縮小" not in main:
+        return False
+    if "赤字" in main and not re.search(r"赤字縮小|黒字", main):
+        return False
+    result = score(title)
+    return not (result and result[0] >= MIN_SCORE)
+
+
+def improve(items):
+    """良くなった決算の見出しを、銘柄ごとにいちばん新しいものだけ残す [{id, code, at, date, title}]。
+    同じ銘柄に、それより新しい好決算や業績の悪い見出しがあれば外す（新しい方を信じる）"""
+    latest, other_at = {}, {}
+    for item in items:
+        if improving(item["title"]):
+            if item["code"] not in latest or item["at"] > latest[item["code"]]["at"]:
+                latest[item["code"]] = item
+        else:
+            main = item["title"].split("・")[0]
+            result = score(item["title"])
+            if (result and result[0] >= MIN_SCORE) or (result is None and WEAK.search(main) and not NOT_WEAK.search(main)):
+                other_at[item["code"]] = max(other_at.get(item["code"], ""), item["at"])
+    return [{k: v[k] for k in ("id", "code", "at", "date", "title")} for v in latest.values()
+            if v["at"] > other_at.get(v["code"], "")]
 
 
 def weak(items):
@@ -168,7 +204,7 @@ def move_since(at, close):
 def build(info, frames, log=print):
     """業績タブのデータ。frames は {"d": 日足}（取引の終わった足だけの表）。発表からの株価の動きに使う。
 
-    返すのは {"days": 見た日数, "stocks": [{code, name, sector, date, title, score, rate, move}], "weak": [...]}。
+    返すのは {"days": 見た日数, "stocks": 好決算 [{code, name, sector, date, title, score, rate, move}], "improve": 改善 [...]}。
     株探が読めないときは stocks が空。
     """
     ranked = load(log)
@@ -184,9 +220,9 @@ def build(info, frames, log=print):
         stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日・発表から +{MIN_MOVE:g}% 以上）")
-    # 業績が悪いのに、決算の発表から株価が上がっている銘柄（上がった順）
-    weak_stocks = []
-    for item in load_weak(log):
+    # 良くなった決算（好決算に入らなかったもの）のあと、株価が上がっている銘柄（上がった順）
+    improve_stocks = []
+    for item in load_improve(log):
         symbol = f"{item['code']}.T"
         if symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
             continue
@@ -194,15 +230,16 @@ def build(info, frames, log=print):
         if move is None or move < MIN_MOVE:
             continue
         row = info.loc[symbol]
-        weak_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
-                            "sector": "" if pd.isna(row["sector"]) else row["sector"]})
-    weak_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"出尽くし: {len(weak_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
-    return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
+        improve_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
+                               "sector": "" if pd.isna(row["sector"]) else row["sector"]})
+    improve_stocks.sort(key=lambda s: s["move"], reverse=True)
+    log(f"改善: {len(improve_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
+    return {"days": DAYS, "stocks": stocks, "improve": improve_stocks}
 
 
 # 米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から拾う。株探と違い GitHub Actions からも読める
-# 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。出尽くし: 予想を US_MIN_SURPRISE % 以上下回った（さらに株価が上がっている）
+# 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。改善: 赤字だが、予想を US_MIN_SURPRISE % 以上上回った（赤字縮小にあたる）。
+# どちらも、発表から株価が MIN_MOVE % 以上上がった銘柄だけ
 US_MIN_SURPRISE = 10.0
 # 予想がこれより小さい（0に近い）と、少しの差でも何百%にもなるので外す（ドル）
 US_MIN_ESTIMATE = 0.10
@@ -282,31 +319,30 @@ def us_move_since(when, timing, close):
 
 
 def build_us(info, close, log=print):
-    """米国株の業績タブのデータ。close は日足の終値の表。形は build と同じ {"days", "stocks", "weak"}"""
-    stocks, weak_stocks = [], []
+    """米国株の業績タブのデータ。close は日足の終値の表。形は build と同じ {"days", "stocks", "improve"}"""
+    stocks, improve_stocks = [], []
     for _, r in us_reports(log).iterrows():
         symbol, est, actual, surprise = r["Symbol"], r["EPS Estimate"], r["Reported EPS"], r.get("Surprise(%)")
         if symbol not in info.index or abs(est) < US_MIN_ESTIMATE:
             continue
         if pd.isna(surprise):
             surprise = (actual / est - 1) * 100 * (1 if est > 0 else -1)
-        good = actual > 0 and surprise >= US_MIN_SURPRISE
-        bad = surprise <= -US_MIN_SURPRISE
-        if not (good or bad):
+        if surprise < US_MIN_SURPRISE:
             continue
+        good = actual > 0  # 黒字なら好決算、赤字なら改善
         move = us_move_since(r["when"], r.get("Timing"), close[symbol]) if symbol in close.columns else None
         if move is None or move < MIN_MOVE:
             continue
         row = info.loc[symbol]
         item = {"code": row["code"], "date": f"{r['when'].month}/{r['when'].day:02d}",
-                "title": f"1株利益 {actual:.2f}ドル（予想 {est:.2f}ドルを {abs(surprise):.0f}% {'上回る' if good else '下回る'}）",
+                "title": f"1株利益 {actual:.2f}ドル（予想 {est:.2f}ドルを {surprise:.0f}% 上回る{'' if good else '・赤字'}）",
                 "surprise": round(float(surprise), 1), "move": move,
                 "name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"]}
-        (stocks if good else weak_stocks).append(item)
+        (stocks if good else improve_stocks).append(item)
     stocks.sort(key=lambda s: s["surprise"], reverse=True)
-    weak_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"米国株の業績タブ: 好決算 {len(stocks):,} 銘柄、出尽くし {len(weak_stocks):,} 銘柄")
-    return {"days": DAYS, "stocks": stocks, "weak": weak_stocks}
+    improve_stocks.sort(key=lambda s: s["move"], reverse=True)
+    log(f"米国株の業績タブ: 好決算 {len(stocks):,} 銘柄、改善 {len(improve_stocks):,} 銘柄")
+    return {"days": DAYS, "stocks": stocks, "improve": improve_stocks}
 
 
 def load(log=print):
@@ -322,14 +358,14 @@ def load(log=print):
     return stocks
 
 
-def load_weak(log=print):
-    """earnings.json の、直近 DAYS 日の業績の悪い銘柄。無い・読めないときは空"""
+def load_improve(log=print):
+    """earnings.json の、直近 DAYS 日の良くなった決算の銘柄（改善）。無い・読めないときは空"""
     try:
         saved = json.loads(SAVED.read_text(encoding="utf-8"))
     except Exception:
         return []
     since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
-    return [s for s in saved.get("weak", []) if pd.Timestamp(s["at"]) >= since]
+    return [s for s in saved.get("improve", []) if pd.Timestamp(s["at"]) >= since]
 
 
 def update(log=print, full=False):
@@ -340,22 +376,26 @@ def update(log=print, full=False):
         saved = {}
     since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
     kept = [s for s in saved.get("stocks", []) if pd.Timestamp(s["at"]) >= since]
-    if saved and "weak" not in saved:
-        # 業績の悪い見出しを残す前の earnings.json なら、1回だけ全部読み直す
+    if saved and ("weak" not in saved or "improve" not in saved):
+        # 業績の悪い見出しや、良くなった決算の見出しを残す前の earnings.json なら、1回だけ全部読み直す
         full = True
-        log("業績の悪い見出しがまだ無いので、直近の見出しを全部読み直します")
+        log("業績の悪い見出しか良くなった決算の見出しがまだ無いので、直近の見出しを全部読み直します")
     log("株探の決算速報を読んでいます...")
     new = headlines(log, known=[] if full else saved.get("seen", []))
     if not new and not saved:
         raise SystemExit("株探の決算速報が1件も読めませんでした（earnings.json はそのまま）")
     # 新しい見出しと、前に残した強い見出しを合わせて、銘柄ごとにいちばん良いものを残す
+    # 業績の悪い見出し（weak）は、改善の銘柄に、それより新しい悪い決算が出ていないかを見るのに使う
     kept_weak = [s for s in saved.get("weak", []) if pd.Timestamp(s["at"]) >= since]
+    kept_improve = [s for s in saved.get("improve", []) if pd.Timestamp(s["at"]) >= since]
     ranked = strong(new + kept)
     weak_items = weak(new + kept_weak + kept)
+    improve_items = improve(new + kept_improve + kept_weak + kept)
     seen = [item["id"] for item in new[:50]] or saved.get("seen", [])
-    out = {"updated": f"{pd.Timestamp.now('Asia/Tokyo'):%Y-%m-%d %H:%M}", "days": DAYS, "seen": seen, "stocks": ranked, "weak": weak_items}
+    out = {"updated": f"{pd.Timestamp.now('Asia/Tokyo'):%Y-%m-%d %H:%M}", "days": DAYS, "seen": seen,
+           "stocks": ranked, "improve": improve_items, "weak": weak_items}
     SAVED.write_text(json.dumps(out, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
-    log(f"earnings.json を書きました: 新しい見出し {len(new):,} 件、業績の強い銘柄 {len(ranked):,}、業績の悪い銘柄 {len(weak_items):,}")
+    log(f"earnings.json を書きました: 新しい見出し {len(new):,} 件、好決算 {len(ranked):,}、改善 {len(improve_items):,}、業績の悪い銘柄 {len(weak_items):,}")
 
 
 if __name__ == "__main__":
