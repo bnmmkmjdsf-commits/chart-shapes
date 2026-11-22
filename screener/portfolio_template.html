@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>PEREGRAPH ポートフォリオ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+/* 見出し → 日米半々・日本株・米国株の切り替え → 成績の表とグラフ → 今の銘柄と金額 → 注意書き */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb;
+  --s1: #2160d0; --s2: #8a94a8; --s3: #e0662f;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff;
+    --s1: #6b9fff; --s2: #7d879c; --s3: #f08a5d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff;
+  --s1: #6b9fff; --s2: #7d879c; --s3: #f08a5d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+a { color: var(--accent); }
+.sub { color: var(--muted); margin: 0; font-size: 13px; }
+.market { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+.market button { border: 0; background: var(--surface); color: var(--fg); padding: 8px 14px; font: inherit; cursor: pointer; }
+.market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+th { color: var(--muted); font-weight: 400; font-size: 12px; }
+.num { font-family: var(--font-num); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+svg { width: 100%; height: auto; display: block; }
+.axis { fill: var(--muted); font-size: 11px; font-family: var(--font-num); }
+.grid { stroke: var(--line); }
+.inputs { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.inputs label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.inputs input { font: inherit; font-family: var(--font-num); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 150px; }
+.note { color: var(--muted); font-size: 13px; }
+.note li { margin-bottom: 4px; }
+.scroll { overflow-x: auto; }
+.mkt { color: var(--muted); font-size: 11px; margin-left: 4px; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>ポートフォリオ</h1>
+    <a href="./">← 業績・持ち株へ</a>
+    <p class="sub" id="sub"></p>
+  </header>
+  <div class="market" role="tablist" aria-label="市場">
+    <button type="button" role="tab" data-view="both" aria-selected="true">日米半々</button>
+    <button type="button" role="tab" data-view="jp" aria-selected="false">日本株</button>
+    <button type="button" role="tab" data-view="us" aria-selected="false">米国株</button>
+  </div>
+
+  <section class="card">
+    <h2>過去の成績（1万円がいくらになったか）</h2>
+    <div id="chart"></div>
+    <div class="scroll"><table id="stats"></table></div>
+    <p class="note" id="how"></p>
+  </section>
+
+  <section class="card">
+    <h2>今の銘柄と金額</h2>
+    <div class="inputs">
+      <label>投資する金額（円）<input id="amount" type="number" inputmode="numeric" min="0" step="10000" value="1000000"></label>
+      <label>1ドル（円）<input id="fx" type="number" inputmode="decimal" min="1" step="0.1" value="150"></label>
+    </div>
+    <p class="note" id="now"></p>
+    <div class="scroll"><table id="hold"></table></div>
+  </section>
+
+  <section class="card note">
+    <ul>
+      <li>勢い（直近の上がり方）・値動きの穏やかさ・指数そのまま など数十通りの組み方を、毎月入れ替えたとして過去で試し、毎月その時点までの直近3年で成績が一番良かった組み方に乗り換えています（「自動選択」。その時点で分かることだけで選ぶので後出しではありません）。</li>
+      <li>日米半々は、GPIF の国内株・外国株と同じく半分ずつ。為替の動きは入れていません。</li>
+      <li>今も上場している銘柄だけで試すので、つぶれた銘柄が入らない分、過去の成績は実際より良く出ます。配当は入っていません。売買の手数料は片道0.3%で引いています。</li>
+      <li>過去の成績は先の成績を約束しません。売買は自分の判断で。</li>
+    </ul>
+  </section>
+</main>
+<script>
+const DATA = __DATA__;
+const LABEL = {jp: "日本株", us: "米国株"};
+const COLORS = ["var(--s1)", "var(--s2)", "var(--s3)"];
+const pct = (v, sign = true) => (sign && v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+const yen = v => Math.round(v).toLocaleString("ja-JP");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+let view = "both";
+
+function chart(block) {
+  const W = 900, H = 300, L = 46, R = 10, T = 10, B = 26;
+  const n = block.months.length;
+  const all = block.rows.flatMap(r => r.curve.map(v => v * 10000));
+  const lo = Math.log(Math.min(...all, 10000) * 0.95), hi = Math.log(Math.max(...all) * 1.05);
+  const x = i => L + (W - L - R) * i / Math.max(1, n - 1);
+  const y = v => T + (H - T - B) * (1 - (Math.log(v) - lo) / (hi - lo));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="成績のグラフ">`;
+  const ticks = [5000, 7500, 10000, 15000, 20000, 30000, 50000, 75000, 100000, 150000, 200000].filter(v => Math.log(v) > lo && Math.log(v) < hi);
+  for (const v of ticks) svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${(v / 10000).toFixed(v % 10000 ? 1 : 0)}万</text>`;
+  block.months.forEach((m, i) => { if (m.endsWith("-01")) svg += `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${m.slice(0, 4)}</text>`; });
+  block.rows.forEach((r, k) => {
+    const d = r.curve.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v * 10000).toFixed(1)}`).join("");
+    svg += `<path d="${d}" fill="none" stroke="${COLORS[k]}" stroke-width="${k ? 1.5 : 2.5}"/>`;
+  });
+  return svg + "</svg>";
+}
+
+function render() {
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-selected", b.dataset.view === view));
+  const block = view === "both" ? DATA.both : DATA.markets[view];
+  document.getElementById("sub").textContent = `${DATA.built} 時点・${block.months[0]} 〜 ${block.months.at(-1)} で試した成績`;
+  document.getElementById("chart").innerHTML = chart(block);
+  document.getElementById("stats").innerHTML = `<tr><th>組み方</th><th>年率</th><th>最大の下げ</th><th>増え方÷値動き</th><th>1万円→</th></tr>` +
+    block.rows.map((r, k) => `<tr><td><span class="key" style="background:${COLORS[k]}"></span>${esc(r.name)}</td>
+      <td class="num ${r.cagr >= 0 ? "pos" : "neg"}">${pct(r.cagr)}</td><td class="num neg">${pct(r.maxdd, false)}</td>
+      <td class="num">${r.sharpe.toFixed(2)}</td><td class="num">${yen(10000 * (1 + r.total))}円</td></tr>`).join("");
+  const markets = view === "both" ? ["jp", "us"] : [view];
+  document.getElementById("how").textContent = markets.map(m => {
+    const d = DATA.markets[m];
+    return `${LABEL[m]}: ${d.tried}通りの組み方を ${d.universe.toLocaleString()} 銘柄で試しました。`;
+  }).join(" ");
+  holdings(markets);
+}
+
+function holdings(markets) {
+  const amount = Number(document.getElementById("amount").value) || 0;
+  const fx = Number(document.getElementById("fx").value) || 150;
+  const share = 1 / markets.length;
+  document.getElementById("now").textContent = markets.map(m => `${LABEL[m]}は今「${DATA.markets[m].now}」`).join("。") + "。";
+  let rows = `<tr><th>銘柄</th><th>割合</th><th>金額（円）</th><th>株価</th><th>株数のめやす</th></tr>`;
+  for (const m of markets) {
+    const list = DATA.markets[m].holdings;
+    for (const h of list) {
+      const money = amount * share * h.weight;
+      const priceYen = m === "us" ? h.price * fx : h.price;
+      const shares = money / priceYen;
+      const shown = m === "jp" ? `${Math.floor(shares / 100) * 100}株` : `${shares.toFixed(shares < 10 ? 1 : 0)}株`;
+      const link = m === "jp" ? `https://kabutan.jp/stock/chart?code=${h.code}` : `https://us.kabutan.jp/stocks/${h.code}/chart`;
+      const name = h.code === "N225" || h.code === "NDX" ? `${esc(h.name)}（連動する投資信託・ETFで）` : `<a href="${link}" target="_blank" rel="noopener">${esc(h.code)}</a> ${esc(h.name)}`;
+      rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${pct(h.weight * share, false)}</td>
+        <td class="num">${yen(money)}</td><td class="num">${m === "us" ? "$" : ""}${h.price.toLocaleString()}</td>
+        <td class="num">${h.code === "N225" || h.code === "NDX" ? "—" : shown}</td></tr>`;
+    }
+    if (!list.length) rows += `<tr><td colspan="5">${LABEL[m]}: 今は株を持たず現金で待つ月です（指数が下向き）</td></tr>`;
+  }
+  document.getElementById("hold").innerHTML = rows;
+}
+
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
+document.getElementById("amount").addEventListener("input", render);
+document.getElementById("fx").addEventListener("input", render);
+render();
+</script>
+</body>
+</html>
