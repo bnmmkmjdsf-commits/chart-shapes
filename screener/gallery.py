@@ -215,6 +215,7 @@ def _build(market, log, site):
     _fill_live_close(monthly, info["price"])
     count = _stock_files(info, {"m": monthly}, site / STOCK_DIR / market)
     log(f"{market}: 銘柄ごとのチャートのファイルを {count:,} 個書き出しました")
+    _write_liquid(info, daily, site / STOCK_DIR / market, market, log)
     # cross は持ち株と注目のカードの札、prices は今の株価（☆を付けてからの値動きと、持ち株に足すコードの確かめに使う）
     result = {"cross": _crosses(info, monthly, market), "prices": _prices(info, daily)}
     if market == "jp":
@@ -229,6 +230,16 @@ def _build(market, log, site):
             earn = _published_us_earn(log)
     result["earn"] = _liquid(earn, market, info, daily, log)
     return result
+
+
+def _write_liquid(info, daily, folder, market, log):
+    """ポートフォリオ（screener/portfolio.py）が使う、1日の売買代金が MIN_TURNOVER 以上の銘柄のコード（_liquid.json）。
+    売買の少ない銘柄を組み入れないため"""
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median()
+    codes = sorted(info.at[symbol, "code"] for symbol, value in turnover.items()
+                   if symbol in info.index and value >= MIN_TURNOVER[market])
+    (folder / "_liquid.json").write_text(json.dumps(codes), encoding="utf-8")
+    log(f"{market}: 売買代金が足りる銘柄 {len(codes):,} 個（ポートフォリオ用）")
 
 
 def _liquid(earn, market, info, daily, log):

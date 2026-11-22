@@ -66,6 +66,17 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 - 予想が0.10ドルより小さい銘柄は外す（少しの差でも何百%にもなるため）
 - 米国株の更新（朝7:00）のときに GitHub Actions が読む。読めないときは4回まで読み直し、それでも駄目なら公開中のページの分を残す（ほかは止まらない）
 
+## ポートフォリオ（portfolio.html）
+
+ページ上の「ポートフォリオ →」から開く。日米株で組むポートフォリオと、その過去の成績（`screener/portfolio.py`、見た目は `screener/portfolio_template.html`）。
+
+- 組み方: 市場ごとに、半分は指数（日経平均・ナスダック100）、半分は「勢い」（12か月前から1か月前までの上がり方）の上位20銘柄に同じ金額ずつ。日米は GPIF の国内株・外国株と同じく半々。毎月の終わりに組み直す
+- 売買代金が足りる銘柄（業績タブと同じ `MIN_TURNOVER`）だけ使う。ページを作るときに `s/市場/_liquid.json` に書き出す
+- 数十通りの組み方（銘柄数・値動きの小さい銘柄を多めにする・指数が下向きなら現金で待つ・毎月その時点の一番に乗り換える など）を試し、前半・後半のどちらでも指数に勝ち、下げも大きくならなかった形にした
+- 銘柄ごとの月足ファイルから作るので株価は取り直さない。株価の更新のたびに作り直す。作れなくてもほかのページは止まらない
+- 手元で: `python -m screener.portfolio --site site`
+- 今も上場している銘柄だけで試すので、過去の成績は実際より良く出る。配当・為替は入れていない
+
 ## 更新のしかた
 
 `.github/workflows/update.yml` が動かす。
@@ -96,6 +107,7 @@ Windows のパス長制限を避けるため、仮想環境はプロジェクト
 | `screener/earnings.py`, `earnings.json` | 株探の決算速報（日本株）と Yahoo Finance の決算の予定表（米国株）から、業績の良い銘柄と悪い銘柄を拾う |
 | `screener/gallery.py`, `screener/gallery_template.html` | ページの書き出しと、ページの見た目 |
 | `screener/watch.py`, `watch.json` | 持ち株と注目の銘柄（どの端末にも出す共通の一覧） |
+| `screener/portfolio.py`, `screener/portfolio_template.html` | ポートフォリオのページ |
 | `screener/published.py`, `screener/retemplate.py` | 公開中のページのデータを取り出す・それを使ってページだけ作り直す |
 
 ## 制約

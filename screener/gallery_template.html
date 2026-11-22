@@ -78,6 +78,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 }
 h1 { font-size: 1.375rem; font-weight: 600; margin: 0; text-wrap: balance; }
 .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; line-height: 1.5; }
+.pflink { display: inline-block; margin-top: 4px; font-size: 0.8125rem; color: var(--accent); text-decoration: none; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 上の部分（見出し・切り替え・凡例・件数・銘柄を足す欄）は、スクロールしても画面の上に残す。動くのはカードだけ。
@@ -232,6 +233,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <header>
     <h1>PEREGRAPH</h1>
     <p class="sub" id="sub">決算の良かった銘柄</p>
+    <a class="pflink" href="portfolio.html">ポートフォリオ →</a>
   </header>
 
   <div class="tabs">

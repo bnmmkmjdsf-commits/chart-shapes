@@ -54,6 +54,13 @@ jobs:
         run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS"   # -u: 進み具合をその場でログに出す
       - if: ${{ inputs.reuse_data || github.event_name == 'push' }}
         run: python -m screener.retemplate --out site/index.html
+      # ポートフォリオのページ（site/portfolio.html）。銘柄ごとの月足ファイルから作るので株価は取り直さない。
+      # 作れなくても、ほかのページの公開は止めない
+      - name: ポートフォリオを作る
+        continue-on-error: true
+        run: |
+          pip install -q -r requirements.txt
+          python -u -m screener.portfolio --site site
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
       # main 以外では公開せず、作ったページを Actions の成果物として残す（gh run download で取れる）
@@ -62,7 +69,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: page
-          path: site/index.html
+          path: |
+            site/index.html
+            site/portfolio.html
       - name: gh-pages に公開
         if: github.ref == 'refs/heads/main'
         working-directory: site
