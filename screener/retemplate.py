@@ -31,7 +31,7 @@ def main():
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
         earn = data[market].get("earn") or {}
-        print(f"{label}: 好決算 {len(earn.get('stocks', []))} 銘柄、出尽くし {len(earn.get('weak', []))} 銘柄（前回のデータ）")
+        print(f"{label}: 好決算 {len(earn.get('stocks', []))} 銘柄、改善 {len(earn.get('improve', []))} 銘柄（前回のデータ）")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 

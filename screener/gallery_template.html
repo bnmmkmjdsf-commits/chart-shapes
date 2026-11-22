@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
 <style>
-/* レイアウト: 見出し → 業績・★注目・持ち株の切り替えと、その右に業績の市場（日本株・米国株）と好決算・出尽くしの切り替え（狭い画面では下の段に回る）
+/* レイアウト: 見出し → 業績・★注目・持ち株の切り替えと、その右に業績の市場（日本株・米国株）と好決算・改善の切り替え（狭い画面では下の段に回る）
    → 線の凡例 → チャートのカード（スマホは1列、広い画面は3列まで） */
 :root {
   --bg: #f3f5f9;
@@ -247,7 +247,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </div>
   <div class="market" id="shapes" role="tablist" aria-label="業績" hidden>
     <button type="button" role="tab" data-shape="good" aria-selected="true">好決算</button>
-    <button type="button" role="tab" data-shape="weak" aria-selected="false">出尽くし</button>
+    <button type="button" role="tab" data-shape="improve" aria-selected="false">改善</button>
   </div>
   </div>
 
@@ -282,7 +282,7 @@ const DATA = __DATA__;
 const STEP = 20;
 // market は開いているタブ（earn が業績、fav が注目、hold が持ち株）
 // frame はカードのチャートの足。決算のあとの動きが見えるように日足に決めている（ほかの足は、銘柄を押した先の株探で見る）
-// shape は業績タブで出す方（good が好決算、weak が出尽くし）
+// shape は業績タブで出す方（good が好決算、improve が改善）
 // earnMarket は業績タブで出す市場
 const state = { market: "earn", frame: "d", shape: "good", earnMarket: "jp", shown: STEP };
 // チャートの足（日足だけ）。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
@@ -303,10 +303,10 @@ const detailUrl = (market, code) => market === "jp"
 
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
-// 業績タブ。DATA[市場].earn の stocks が好決算（強い順）、weak が出尽くし（決算のあと株価が上がった順）。
+// 業績タブ。DATA[市場].earn の stocks が好決算（強い順）、improve が改善（決算のあと株価が上がった順）。
 // 日本株は株探の決算速報、米国株は Yahoo Finance の1株利益の予想と実績から拾っている
-const SHAPES = { good: "好決算", weak: "出尽くし" };
-const earnList = (market, shape) => ((DATA[market].earn || {})[shape === "weak" ? "weak" : "stocks"]) || [];
+const SHAPES = { good: "好決算", improve: "改善" };
+const earnList = (market, shape) => ((DATA[market].earn || {})[shape === "improve" ? "improve" : "stocks"]) || [];
 // 抜けの札。日足で短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
 // DATA[市場].cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き（上抜けが1）, 何本前か]}}
 const FRESH = { d: 2 };
@@ -535,7 +535,7 @@ function render() {
   }
 
   if (isEarn) {
-    const m = state.earnMarket, isWeak = state.shape === "weak", isUs = m === "us";
+    const m = state.earnMarket, isImprove = state.shape === "improve", isUs = m === "us";
     document.querySelectorAll("[data-earn-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.earnMarket === m)));
     document.querySelectorAll("[data-shape]").forEach((b) => {
       b.textContent = `${SHAPES[b.dataset.shape]} ${earnList(m, b.dataset.shape).length}`;
@@ -545,15 +545,15 @@ function render() {
     const list = all.slice(0, state.shown);
     const days = (DATA[m].earn || {}).days || 45;
     sub.textContent = isUs
-      ? (isWeak ? `直近${days}日の決算で1株利益が予想を大きく下回ったのに、発表から株価が上がっている米国株。上下のぶれが大きいので注意`
+      ? (isImprove ? `直近${days}日の決算で、赤字だが1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`
         : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`)
-      : (isWeak ? `株探の決算速報（直近${days}日）で業績が悪かったのに、発表から株価が上がっている日本株。上下のぶれが大きいので注意`
+      : (isImprove ? `株探の決算速報（直近${days}日）で、赤字縮小・黒字浮上・増益・上方修正・増配など良くなった決算（好決算を除く）のあと、株価も5%以上上がった日本株`
         : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`);
-    const order = isWeak ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
+    const order = isImprove ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
       ? list.map((s) => ownCard(m, s.code, { note: s }, s)).join("")
-      : `<p class="empty">${isWeak ? "業績が悪いのに株価が上がっている銘柄は、いまありません。" : "業績が良くて株価も上がっている銘柄は、いまありません。"}</p>`;
+      : `<p class="empty">${isImprove ? "決算が良くなって株価も上がっている銘柄は、いまありません。" : "業績が良くて株価も上がっている銘柄は、いまありません。"}</p>`;
     document.getElementById("more").hidden = state.shown >= all.length;
     return;
   }

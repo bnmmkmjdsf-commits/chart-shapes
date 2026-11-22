@@ -224,14 +224,14 @@ def _build(market, log, site):
 
 def _published_us_earn(log):
     """米国株の決算が読めなかったときの代わり。公開中のページの業績タブ（米国株）を、今の決まりで絞り直して使う"""
-    empty = {"days": earnings.DAYS, "stocks": [], "weak": []}
+    empty = {"days": earnings.DAYS, "stocks": [], "improve": []}
     try:
         earn = json.loads(published.payload())["us"]["earn"]
     except Exception as error:
         log(f"  公開中のページの米国株の業績も使えません（{error}）。空にします")
         return empty
     keep = lambda items: [s for s in items if s.get("move") is not None and s["move"] >= earnings.MIN_MOVE]
-    return {**empty, **earn, "stocks": keep(earn.get("stocks", [])), "weak": keep(earn.get("weak", []))}
+    return {"days": earn.get("days", earnings.DAYS), "stocks": keep(earn.get("stocks", [])), "improve": keep(earn.get("improve", []))}
 
 
 def _published(log):
@@ -273,7 +273,7 @@ def main():
     out.write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
     for market, label in [("jp", "日本株"), ("us", "米国株")]:
         earn = data[market].get("earn") or {}
-        print(f"{label}: 好決算 {len(earn.get('stocks', []))} 銘柄、出尽くし {len(earn.get('weak', []))} 銘柄")
+        print(f"{label}: 好決算 {len(earn.get('stocks', []))} 銘柄、改善 {len(earn.get('improve', []))} 銘柄")
     print(f"{out} を作りました（{out.stat().st_size / 1024:.0f} KB）")
 
 
