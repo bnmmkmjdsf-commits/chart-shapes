@@ -281,13 +281,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 const DATA = __DATA__;
 const STEP = 20;
 // market は開いているタブ（earn が業績、fav が注目、hold が持ち株）
-// frame はカードのチャートの足。決算のあとの動きが見えるように日足に決めている（ほかの足は、銘柄を押した先の株探で見る）
+// frame はカードのチャートの足。大きな流れが見えるように月足に決めている（日足などほかの足は、銘柄を押した先の株探で見る）
 // shape は業績タブで出す方（good が好決算、improve が改善）
 // earnMarket は業績タブで出す市場
-const state = { market: "earn", frame: "d", shape: "good", earnMarket: "jp", shown: STEP };
-// チャートの足（日足だけ）。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
+const state = { market: "earn", frame: "m", shape: "good", earnMarket: "jp", shown: STEP };
+// チャートの足（月足だけ）。ma はチャートに描く移動平均（短期・中期・長期）で、ページを作る側（gallery.py の FRAMES）と同じ本数
 const FRAMES = {
-  d: { name: "日足", ma: ["5日線", "25日線", "75日線"], sizes: [5, 25, 75], ago: "日前" },
+  m: { name: "月足", ma: ["12か月線", "24か月線", "60か月線"], sizes: [12, 24, 60], ago: "か月前" },
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -307,9 +307,9 @@ const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // 日本株は株探の決算速報、米国株は Yahoo Finance の1株利益の予想と実績から拾っている
 const SHAPES = { good: "好決算", improve: "改善" };
 const earnList = (market, shape) => ((DATA[market].earn || {})[shape === "improve" ? "improve" : "stocks"]) || [];
-// 抜けの札。日足で短期線が中期線を抜けたばかり（FRESH 本前まで）なら出す。
+// 抜けの札。月足で短期線が中期線を抜けたばかり（FRESH 本前まで。0 なら取引が終わった直近の月だけ）なら出す。
 // DATA[市場].cross は、全銘柄のいちばん新しい抜け {コード: {足の種類: [向き（上抜けが1）, 何本前か]}}
-const FRESH = { d: 2 };
+const FRESH = { m: 0 };
 function freshCrosses(market, code) {
   const found = (DATA[market].cross || {})[code] || {};
   return Object.keys(FRESH).filter((f) => found[f] && found[f][1] <= FRESH[f])
