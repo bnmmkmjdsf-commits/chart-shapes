@@ -42,6 +42,11 @@ INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 # 株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
 # 業績タブ・持ち株・注目のどの銘柄でもチャートを出せるよう広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
+# 業績タブ（好決算・改善）に載せる銘柄の、1日の売買代金（終値 × 出来高）の下限（日本株は5億円、米国株は2000万ドル）。
+# 売りたいときにすぐ売れる銘柄だけにする。売買代金は直近 TURNOVER_DAYS 日の中央値で見る
+# （平均でなく中央値にするのは、決算の発表の日などに出来高が跳ねた数日だけで入らないようにするため）
+MIN_TURNOVER = {"jp": 5e8, "us": 2e7}
+TURNOVER_DAYS = 20
 # 銘柄ごとのチャートのファイルを置くフォルダ（ページと同じ場所の下。その下に市場ごとのフォルダ）
 STOCK_DIR = "s"
 
@@ -213,16 +218,29 @@ def _build(market, log, site):
     # cross は持ち株と注目のカードの札、prices は今の株価（☆を付けてからの値動きと、持ち株に足すコードの確かめに使う）
     result = {"cross": _crosses(info, monthly, market), "prices": _prices(info, daily)}
     if market == "jp":
-        # 業績タブ（株探の決算速報で業績の良い銘柄と、業績が悪いのに株価が上がっている銘柄）
-        result["earn"] = earnings.build(info, {"d": daily}, log)
+        # 日本株の業績タブ（株探の決算速報で、好決算と、良くなった決算（改善）のあと株価が上がった銘柄）
+        earn = earnings.build(info, {"d": daily}, log)
     else:
-        # 米国株の業績タブ（Yahoo Finance の決算の予定表で、1株利益が予想を大きく上回った・下回った銘柄）。読めなくても止めない
+        # 米国株の業績タブ（Yahoo Finance の決算の予定表で、1株利益が予想を大きく上回った銘柄）。読めなくても止めない
         try:
-            result["earn"] = earnings.build_us(info, daily["close"], log)
+            earn = earnings.build_us(info, daily["close"], log)
         except Exception as error:
             log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は、公開中のページのものを残します")
-            result["earn"] = _published_us_earn(log)
+            earn = _published_us_earn(log)
+    result["earn"] = _liquid(earn, market, info, daily, log)
     return result
+
+
+def _liquid(earn, market, info, daily, log):
+    """業績タブの銘柄を、1日の売買代金（直近 TURNOVER_DAYS 日の中央値）が MIN_TURNOVER 以上の銘柄だけにする"""
+    limit = MIN_TURNOVER[market]
+    turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().dropna()
+    by_code = {info.at[symbol, "code"]: value for symbol, value in turnover.items() if symbol in info.index}
+    keep = lambda items: [s for s in items if by_code.get(s["code"], 0) >= limit]
+    out = {**earn, "stocks": keep(earn.get("stocks", [])), "improve": keep(earn.get("improve", [])), "min_turnover": limit}
+    log(f"{market}: 売買代金で絞った業績タブ: 好決算 {len(earn.get('stocks', []))} → {len(out['stocks'])} 銘柄、"
+        f"改善 {len(earn.get('improve', []))} → {len(out['improve'])} 銘柄（1日 {limit:,.0f} 以上）")
+    return out
 
 
 def _published_us_earn(log):
