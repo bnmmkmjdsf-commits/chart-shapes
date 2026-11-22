@@ -543,12 +543,16 @@ function render() {
     });
     const all = earnList(m, state.shape);
     const list = all.slice(0, state.shown);
-    const days = (DATA[m].earn || {}).days || 45;
-    sub.textContent = isUs
+    const earn = DATA[m].earn || {}, days = earn.days || 45;
+    // 売買代金の下限（ページを作る側の MIN_TURNOVER）。日本株は「5億円」、米国株は「2000万ドル」のように出す
+    const limit = earn.min_turnover
+      ? `（1日の売買代金${isUs ? `${earn.min_turnover / 1e4}万ドル` : `${earn.min_turnover / 1e8}億円`}以上）`
+      : "";
+    sub.textContent = (isUs
       ? (isImprove ? `直近${days}日の決算で、赤字だが1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`
         : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`)
       : (isImprove ? `株探の決算速報（直近${days}日）で、赤字縮小・黒字浮上・増益・上方修正・増配など良くなった決算（好決算を除く）のあと、株価も5%以上上がった日本株`
-        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`);
+        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`)) + limit;
     const order = isImprove ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
