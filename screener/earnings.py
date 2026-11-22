@@ -136,18 +136,27 @@ IMPROVE = re.compile(r"赤字縮小|黒字浮上|黒字転換|増益|上方修�
 MIN_MOVE = 5.0
 
 
+def _bad_part(part):
+    """見出しの一区切りに、悪い話が入っているか。
+
+    下方修正・減配・配当の見送り・未定は悪い話。「減益」「赤字」は、
+    「減益幅縮小」「赤字縮小」「黒字浮上」のように良くなっているときは悪い話にしない
+    """
+    if re.search(r"下方修正|減配|減額|見送り|未定に", part):
+        return True
+    if "減益" in part and "縮小" not in part:
+        return True
+    return "赤字" in part and not re.search(r"赤字縮小|黒字", part)
+
+
 def improving(title):
     """良くなった決算の見出しか（好決算に入るものは除く）。
 
-    見出しの前半（「・」より前）で見る。下方修正・減配・未定は外す。「減益」「赤字」は、
-    「減益幅縮小」「赤字縮小」「黒字浮上」のように良くなっているときだけ残す
+    見出しの前半（「・」より前）に良くなった話があり、見出しのどこにも悪い話が無いものだけ。
+    「今期配当を見送り」や「7-9月期は30％減益」（直近の3か月は減益）が付いた見出しは外す
     """
     main = title.split("・")[0]
-    if not IMPROVE.search(main) or re.search(r"下方修正|減配|減額|未定に", main):
-        return False
-    if "減益" in main and "縮小" not in main:
-        return False
-    if "赤字" in main and not re.search(r"赤字縮小|黒字", main):
+    if not IMPROVE.search(main) or any(_bad_part(part) for part in re.split(r"[・、]", title)):
         return False
     result = score(title)
     return not (result and result[0] >= MIN_SCORE)
@@ -365,7 +374,7 @@ def load_improve(log=print):
     except Exception:
         return []
     since = pd.Timestamp.now("Asia/Tokyo") - pd.Timedelta(days=DAYS)
-    return [s for s in saved.get("improve", []) if pd.Timestamp(s["at"]) >= since]
+    return [s for s in saved.get("improve", []) if pd.Timestamp(s["at"]) >= since and improving(s["title"])]
 
 
 def update(log=print, full=False):
