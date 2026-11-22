@@ -97,6 +97,10 @@ def _revision(text):
     return float(m.group(1)) if m.group(2) == "％" else (float(m.group(1)) - 1) * 100
 
 
+# 直近の3か月も伸びている見出し（「・7-9月期も34％増益」「・10-12月期も2.3倍増益」など、どの3か月でも）
+QUARTER_UP = re.compile(r"\d{1,2}-\d{1,2}月期(?:\([^)]*\))?も[\d.]+(?:％|倍)増益")
+
+
 def score(title):
     """(点数, 伸び率) を返す。業績タブに載せない見出しは None"""
     main = title.split("・")[0]
@@ -106,17 +110,30 @@ def score(title):
     points += 3 if "最高益" in title else 0
     points += 2 if "上方修正" in title else 0
     points += 1 if re.search(r"増配|増額", title) else 0
-    points += 1 if re.search(r"7-9月期も[\d.]+[％倍]", title) else 0
+    points += 1 if QUARTER_UP.search(title) else 0
     growth = _growth(main)
     return points, max(growth or 0.0, _revision(title))
 
 
+def _is_bad(title):
+    """業績の悪い見出しか（減益・下方修正・赤字・減額・減配・未定。赤字縮小や増益などの良くなった決算は除く）"""
+    main = title.split("・")[0]
+    return score(title) is None and bool(WEAK.search(main)) and not NOT_WEAK.search(main)
+
+
 def strong(items):
-    """銘柄ごとにいちばん良い見出しを残し、強い順に並べる [{code, date, title, score, rate}]"""
+    """銘柄ごとにいちばん良い見出しを残し、強い順に並べる [{code, date, title, score, rate}]。
+
+    その銘柄の、いちばん新しい悪い見出しより前の見出しは使わない（あとで下方修正などが出たら外す。新しい方を信じる）
+    """
+    bad_at = {}
+    for item in items:
+        if _is_bad(item["title"]):
+            bad_at[item["code"]] = max(bad_at.get(item["code"], ""), item["at"])
     best = {}
     for item in items:
         result = score(item["title"])
-        if result is None or result[0] < MIN_SCORE:
+        if result is None or result[0] < MIN_SCORE or item["at"] <= bad_at.get(item["code"], ""):
             continue
         key = result
         if item["code"] not in best or key > best[item["code"]][0]:
@@ -171,9 +188,8 @@ def improve(items):
             if item["code"] not in latest or item["at"] > latest[item["code"]]["at"]:
                 latest[item["code"]] = item
         else:
-            main = item["title"].split("・")[0]
             result = score(item["title"])
-            if (result and result[0] >= MIN_SCORE) or (result is None and WEAK.search(main) and not NOT_WEAK.search(main)):
+            if (result and result[0] >= MIN_SCORE) or _is_bad(item["title"]):
                 other_at[item["code"]] = max(other_at.get(item["code"], ""), item["at"])
     return [{k: v[k] for k in ("id", "code", "at", "date", "title")} for v in latest.values()
             if v["at"] > other_at.get(v["code"], "")]
@@ -183,8 +199,7 @@ def weak(items):
     """業績の悪い見出しを、銘柄ごとにいちばん新しいものだけ残す [{id, code, at, date, title}]。同じ銘柄に、それより新しい強い見出しがあれば外す"""
     latest, strong_at = {}, {}
     for item in items:
-        main = item["title"].split("・")[0]
-        if score(item["title"]) is None and WEAK.search(main) and not NOT_WEAK.search(main):
+        if _is_bad(item["title"]):
             if item["code"] not in latest or item["at"] > latest[item["code"]]["at"]:
                 latest[item["code"]] = item
         else:
@@ -229,11 +244,13 @@ def build(info, frames, log=print):
         stocks.append({**item, "move": move, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日・発表から +{MIN_MOVE:g}% 以上）")
-    # 良くなった決算（好決算に入らなかったもの）のあと、株価が上がっている銘柄（上がった順）
+    # 良くなった決算（好決算に入らなかったもの）のあと、株価が上がっている銘柄（上がった順）。
+    # 同じ銘柄が好決算と改善の両方に出ないよう、45日のうちに好決算の見出しがある銘柄は改善に載せない
+    in_good = {item["code"] for item in ranked}
     improve_stocks = []
     for item in load_improve(log):
         symbol = f"{item['code']}.T"
-        if symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
+        if item["code"] in in_good or symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
             continue
         move = move_since(item["at"], frames["d"]["close"][symbol])
         if move is None or move < MIN_MOVE:
@@ -397,7 +414,7 @@ def update(log=print, full=False):
     # 業績の悪い見出し（weak）は、改善の銘柄に、それより新しい悪い決算が出ていないかを見るのに使う
     kept_weak = [s for s in saved.get("weak", []) if pd.Timestamp(s["at"]) >= since]
     kept_improve = [s for s in saved.get("improve", []) if pd.Timestamp(s["at"]) >= since]
-    ranked = strong(new + kept)
+    ranked = strong(new + kept + kept_weak)
     weak_items = weak(new + kept_weak + kept)
     improve_items = improve(new + kept_improve + kept_weak + kept)
     seen = [item["id"] for item in new[:50]] or saved.get("seen", [])
