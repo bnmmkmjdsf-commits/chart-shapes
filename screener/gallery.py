@@ -232,11 +232,13 @@ def _build(market, log, site):
 
 
 def _liquid(earn, market, info, daily, log):
-    """業績タブの銘柄を、1日の売買代金（直近 TURNOVER_DAYS 日の中央値）が MIN_TURNOVER 以上の銘柄だけにする"""
+    """業績タブの銘柄を、1日の売買代金（直近 TURNOVER_DAYS 日の中央値）が MIN_TURNOVER 以上の銘柄だけにし、
+    売買代金の大きい順に並べる（大型株・よく売買される銘柄が上に来る）"""
     limit = MIN_TURNOVER[market]
     turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median().dropna()
     by_code = {info.at[symbol, "code"]: value for symbol, value in turnover.items() if symbol in info.index}
-    keep = lambda items: [s for s in items if by_code.get(s["code"], 0) >= limit]
+    keep = lambda items: sorted((s for s in items if by_code.get(s["code"], 0) >= limit),
+                                key=lambda s: by_code[s["code"]], reverse=True)
     out = {**earn, "stocks": keep(earn.get("stocks", [])), "improve": keep(earn.get("improve", [])), "min_turnover": limit}
     log(f"{market}: 売買代金で絞った業績タブ: 好決算 {len(earn.get('stocks', []))} → {len(out['stocks'])} 銘柄、"
         f"改善 {len(earn.get('improve', []))} → {len(out['improve'])} 銘柄（1日 {limit:,.0f} 以上）")

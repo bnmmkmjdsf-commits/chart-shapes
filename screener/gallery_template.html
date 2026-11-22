@@ -553,7 +553,7 @@ function render() {
         : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`)
       : (isImprove ? `株探の決算速報（直近${days}日）で、赤字縮小・黒字浮上・増益・上方修正・増配など良くなった決算（好決算を除く）のあと、株価も5%以上上がった日本株`
         : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`)) + limit;
-    const order = isImprove ? "発表からの上がり方が大きい順" : isUs ? "予想を上回った幅の大きい順" : "最高益・上方修正・増配の多い順";
+    const order = "売買代金の大きい順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length
       ? list.map((s) => ownCard(m, s.code, { note: s }, s)).join("")
