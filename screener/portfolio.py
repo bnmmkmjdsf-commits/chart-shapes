@@ -1,13 +1,16 @@
-"""日米の株で、過去の成績が一番良くなる組み方を自動で選んで、今のポートフォリオを出す。
+"""日米の株で、指数を土台に勢いの強い銘柄を足したポートフォリオを出し、過去の成績を試す。
 
-材料は、ページを作るときに書き出す銘柄ごとの月足（site/s/市場/コード.json）。株価を取り直さずに動く。
+材料は、ページを作るときに書き出す銘柄ごとの月足（site/s/市場/コード.json）。株価は取り直さない。
 
-やること:
-1. 組み方の候補（勢いの強い銘柄・値動きの穏やかな銘柄・指数そのまま など、条件違いで数十通り）を、
-   毎月入れ替えたとして過去にさかのぼって試す（売買の手数料も引く）
-2. 毎月、その時点までの直近 PICK_MONTHS か月で成績（値動きの割に増えたか）が一番良かった組み方に乗り換える。
-   その月に分かることだけで選ぶので、後出しにならない（これを「自動選択」と呼ぶ）
-3. 今月の「自動選択」が選んでいる組み方で、今の銘柄と割合を出す。日米は GPIF に倣って半々にする
+組み方（市場ごと。毎月の終わりに組み直す）:
+- 半分は指数（日経平均・ナスダック100）。土台にして値下がりを和らげる
+- 半分は「勢い」の上位 TOP 銘柄に同じ金額ずつ。勢い = 12か月前から1か月前までの上がり方（直近1か月は戻りやすいので除く）。
+  上がっている株はしばらく上がり続けやすい、という昔から知られた傾向を使う
+- 日米は GPIF の国内株・外国株と同じく半々
+
+この形は、数十通りの組み方（勢いの測り方・銘柄数・値動きの小さい銘柄を多めにする・指数が下向きなら現金で待つ・
+毎月その時点の一番に乗り換える など）を過去で試して比べて決めた。前半・後半のどちらの期間でも指数に勝ち、
+下げも指数と同じくらいに収まったのがこの形だった（ほかは、片方の期間だけ良い・下げが大きい・乗り換えで負ける）。
 
 注意: 今も上場している銘柄だけで試すので、つぶれた銘柄が入らない分、過去の成績は実際より良く出る。配当は入っていない。
 """
@@ -23,35 +26,17 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).resolve().parent / "portfolio_template.html"
 INDEX = {"jp": ("N225", "日経平均"), "us": ("NDX", "ナスダック100")}
 COST = 0.003          # 売り買いした金額にかかる手数料・値幅のずれ（片道 0.3%）
-PICK_MONTHS = 36      # 自動選択で、成績を比べる直近の月数
+TOP = 20              # 勢いの上位から組み入れる銘柄数
+CORE = 0.5            # 指数に置く割合
 MIN_HISTORY = 25      # 候補に入れるのに要る月足の本数
 MIN_PRICE = {"jp": 300, "us": 5}   # 低位株（値が飛びやすい）は外す
 MAX_JUMP = 3.0        # 1か月で3倍・3分の1になった足がある銘柄は、データの誤り（株式分割など）かもしれないので外す
-TREND_MONTHS = 10     # 指数がこの月数の平均を下回ったら、株を売って現金で待つ（「守り」付きの組み方）
 
 
-def _strategies():
-    """組み方の候補。kind: mom=勢い（直近の上がり方）、lowvol=値動きの穏やかさ、score=勢い÷値動き、index=指数そのまま"""
-    out = [{"kind": "index", "name": "指数そのまま"}]
-    for kind in ["mom", "score", "lowvol"]:
-        for look in ([6, 12] if kind != "lowvol" else [12]):
-            for top in [10, 20, 30]:
-                for weight in ["eq", "invvol"]:
-                    for guard in [False, True]:
-                        out.append({"kind": kind, "look": look, "top": top, "weight": weight, "guard": guard})
-    for s in out:
-        if "name" not in s:
-            s["name"] = _name(s)
-    return out
-
-
-def _name(s):
-    kind = {"mom": "勢い", "score": "勢い÷値動き", "lowvol": "値動きの穏やかさ"}[s["kind"]]
-    parts = [f"{kind}（{s['look']}か月）" if s["kind"] != "lowvol" else kind, f"上位{s['top']}銘柄",
-             "値動きの小さい銘柄を多め" if s["weight"] == "invvol" else "同じ金額ずつ"]
-    if s["guard"]:
-        parts.append(f"指数が{TREND_MONTHS}か月平均を割ったら現金")
-    return "・".join(parts)
+STRATEGIES = [
+    {"kind": "index", "name": "指数そのまま"},
+    {"kind": "mom", "look": 12, "top": TOP, "name": f"勢いの上位{TOP}銘柄だけ"},
+]
 
 
 def load(site, market, liquid=None):
@@ -91,36 +76,22 @@ def _liquid_codes(site, market):
     return set(json.loads(path.read_text(encoding="utf-8")))
 
 
-def _weights(s, close, rets, t, index_col):
-    """月 t の終わりに組む割合（列ごと）。勢い・値動きは月 t までの値だけで測る"""
-    n = close.shape[1]
-    w = np.zeros(n)
+def _weights(s, close, rets, t, index_col, min_price):
+    """月 t の終わりに組む割合（列ごと）。勢いは月 t までの値だけで測る"""
+    w = np.zeros(close.shape[1])
     if s["kind"] == "index":
         w[index_col] = 1.0
         return w
-    if s["guard"]:
-        idx = close[t - TREND_MONTHS + 1:t + 1, index_col]
-        if close[t, index_col] < np.nanmean(idx):
-            return w  # 現金で待つ
-    look = s.get("look", 12)
-    window = rets[t - 11:t + 1]                     # 値動きの大きさは直近12か月で測る
-    vol = np.nanstd(window, axis=0) * np.sqrt(12)
-    ok = (~np.isnan(window).any(axis=0)) & (close[t] >= s["min_price"]) & (vol > 0)
+    window = rets[t - 11:t + 1]
+    ok = (~np.isnan(window).any(axis=0)) & (close[t] >= min_price)
     ok &= ~(np.abs(np.log1p(window)) > np.log(MAX_JUMP)).any(axis=0)
     ok[index_col] = False
-    if s["kind"] == "lowvol":
-        score = -vol
-    else:
-        # 直近の1か月は除く（すぐ戻りやすいため）。look か月前から1か月前までの上がり方
-        mom = close[t - 1] / close[t - look] - 1
-        ok &= ~np.isnan(mom)
-        score = mom if s["kind"] == "mom" else mom / vol
-    score = np.where(ok, score, -np.inf)
+    mom = close[t - 1] / close[t - s["look"]] - 1
+    ok &= ~np.isnan(mom)
     if ok.sum() < s["top"]:
         return w
-    pick = np.argsort(score)[::-1][:s["top"]]
-    raw = np.ones(len(pick)) if s["weight"] == "eq" else 1 / vol[pick]
-    w[pick] = raw / raw.sum()
+    pick = np.argsort(np.where(ok, mom, -np.inf))[::-1][:s["top"]]
+    w[pick] = 1 / len(pick)
     return w
 
 
@@ -135,9 +106,7 @@ def backtest(close_df, market):
     with np.errstate(invalid="ignore", divide="ignore"):
         rets = close[1:] / close[:-1] - 1
     rets = np.vstack([np.full(close.shape[1], np.nan), rets])
-    strategies = _strategies()
-    for s in strategies:
-        s["min_price"] = MIN_PRICE[market]
+    strategies = STRATEGIES
     start = 13  # 12か月の勢いと値動きが測れる最初の月
     last_done = len(close) - 2  # 試しに使う最後の月（その次の月の増え方まで分かる）
     out = np.full((len(close), len(strategies)), np.nan)
@@ -145,7 +114,7 @@ def backtest(close_df, market):
     for k, s in enumerate(strategies):
         held = np.zeros(close.shape[1])
         for t in range(start, len(close)):
-            w = _weights(s, close, rets, t, index_col)
+            w = _weights(s, close, rets, t, index_col, MIN_PRICE[market])
             if t == len(close) - 1:
                 latest[k] = w
                 break
@@ -169,19 +138,6 @@ def _sharpe(r):
     return r.mean() / r.std() * np.sqrt(12)
 
 
-def auto_select(table):
-    """毎月、直近 PICK_MONTHS か月で一番成績の良かった組み方に乗り換える。選ぶのはその月までの成績だけ"""
-    values = table.to_numpy()
-    picks, rets = [], []
-    for t in range(PICK_MONTHS, len(values)):
-        past = values[t - PICK_MONTHS:t]
-        best = int(np.argmax([_sharpe(past[:, k]) for k in range(values.shape[1])]))
-        picks.append(best)
-        rets.append(values[t, best])
-    now = int(np.argmax([_sharpe(values[-PICK_MONTHS:, k]) for k in range(values.shape[1])]))
-    return pd.Series(rets, index=table.index[PICK_MONTHS:]), picks, now
-
-
 def stats(r):
     """月ごとの増え方から、年率の増え方・値動きの大きさ・増え方÷値動き・一番大きく減った割合"""
     r = pd.Series(r).dropna()
@@ -196,59 +152,70 @@ def stats(r):
     }
 
 
+def _row(name, r):
+    r = r.dropna()
+    return {"name": name, **stats(r), "curve": [round(float(v), 4) for v in (1 + r).cumprod()]}
+
+
+def _halves(r, index_r):
+    """前半・後半それぞれで、指数より増えたか（たまたま一時期だけ良かったのではないかを見る）"""
+    half = len(r) // 2
+    out = []
+    for label, part in [("前半", slice(None, half)), ("後半", slice(half, None))]:
+        a, b = stats(r.iloc[part]), stats(index_r.iloc[part])
+        out.append({"label": label, "from": str(r.index[part][0]), "to": str(r.index[part][-1]),
+                    "cagr": a["cagr"], "index_cagr": b["cagr"], "maxdd": a["maxdd"], "index_maxdd": b["maxdd"]})
+    return out
+
+
 def build(site, log=print):
-    """日米それぞれ試して、自動選択の成績と今のポートフォリオをまとめる"""
-    result = {"markets": {}, "built": date.today().isoformat()}
-    oos = {}
+    """日米それぞれ試して、成績と今のポートフォリオをまとめる"""
+    result = {"markets": {}, "built": date.today().isoformat(), "top": TOP, "core": CORE}
+    mix = {}
     for market in ["jp", "us"]:
         liquid = _liquid_codes(site, market)
         close, names = load(site, market, liquid)
         log(f"{market}: {close.shape[1]:,} 銘柄・{close.shape[0]} か月"
             f"（{'売買代金で絞った' if liquid is not None else '売買代金の一覧が無いので全'}銘柄）")
         table, strategies, latest = backtest(close, market)
-        auto, picks, now = auto_select(table)
-        index_r = table[0]
-        oos[market] = {"auto": auto, "index": index_r.loc[auto.index]}
-        # 比べる表: 自動選択と、指数と、全期間で一番良かった組み方（これは後出しなので参考）
-        full_best = int(np.argmax([_sharpe(table[k].to_numpy()) for k in table.columns]))
-        rows = [("自動選択（後出しなし）", auto), (f"{INDEX[market][1]}", index_r.loc[auto.index]),
-                (f"参考: 後から見た一番（{strategies[full_best]['name']}）", table[full_best].loc[auto.index])]
-        w = latest[now]
+        index_r, mom_r = table[0], table[1]
+        ours = index_r * CORE + mom_r * (1 - CORE)
+        mix[market] = (ours, index_r)
+        w = latest[0] * CORE + latest[1] * (1 - CORE)
         holdings = [{"code": close.columns[j], "name": names[close.columns[j]], "weight": round(float(w[j]), 4),
                      "price": float(close.iloc[-1, j])}
                     for j in np.argsort(w)[::-1] if w[j] > 0]
-        used = pd.Series(picks).value_counts()
+        name = INDEX[market][1]
         result["markets"][market] = {
             "universe": int(close.shape[1]),
             "liquid": liquid is not None,
-            "months": [str(p) for p in auto.index],
-            "rows": [{"name": name, **stats(r), "curve": [round(float(v), 4) for v in (1 + r.fillna(0)).cumprod()]}
-                     for name, r in rows],
-            "now": strategies[now]["name"],
-            "now_sharpe": float(_sharpe(table[now].to_numpy()[-PICK_MONTHS:])),
+            "months": [str(p) for p in ours.index],
+            "rows": [_row(f"このポートフォリオ（{name}半分＋勢いの上位{TOP}銘柄半分）", ours),
+                     _row(name, index_r), _row(f"参考: 勢いの上位{TOP}銘柄だけ", mom_r)],
+            "halves": _halves(ours, index_r),
             "holdings": holdings,
-            "used": [{"name": strategies[k]["name"], "months": int(c)} for k, c in used.head(5).items()],
-            "tried": len(strategies),
         }
-        s = stats(auto)
-        log(f"  自動選択: 年率 {s['cagr']:+.1%}・最大の下げ {s['maxdd']:.1%}・増え方÷値動き {s['sharpe']:.2f}"
-            f" / {INDEX[market][1]}: 年率 {stats(oos[market]['index'])['cagr']:+.1%}")
-        log(f"  今の組み方: {strategies[now]['name']}（{len(holdings)} 銘柄）")
+        a, b = stats(ours), stats(index_r)
+        log(f"  このポートフォリオ: 年率 {a['cagr']:+.1%}・最大の下げ {a['maxdd']:.1%}・増え方÷値動き {a['sharpe']:.2f}"
+            f" / {name}: 年率 {b['cagr']:+.1%}・最大の下げ {b['maxdd']:.1%}・{b['sharpe']:.2f}")
+        for h in result["markets"][market]["halves"]:
+            log(f"  {h['label']}（{h['from']}〜{h['to']}）: 年率 {h['cagr']:+.1%}（{name} {h['index_cagr']:+.1%}）")
+        log(f"  今の銘柄: " + "、".join(f"{x['code']} {x['name']}" for x in holdings[:6]) + " ...")
     # 日米を半々（GPIF の国内株・外国株と同じ考え方）。為替は入れていない
-    both = (oos["jp"]["auto"] * 0.5 + oos["us"]["auto"] * 0.5).dropna()
-    gpif = (oos["jp"]["index"] * 0.5 + oos["us"]["index"] * 0.5).loc[both.index]
+    both = (mix["jp"][0] * 0.5 + mix["us"][0] * 0.5).dropna()
+    gpif = (mix["jp"][1] * 0.5 + mix["us"][1] * 0.5).loc[both.index]
     result["both"] = {
         "months": [str(p) for p in both.index],
-        "rows": [{"name": name, **stats(r), "curve": [round(float(v), 4) for v in (1 + r).cumprod()]}
-                 for name, r in [("日米の自動選択を半々", both), ("GPIF風（日経平均とナスダック100を半々）", gpif)]],
+        "rows": [_row("このポートフォリオ（日米半々）", both), _row("GPIF風（日経平均とナスダック100を半々）", gpif)],
+        "halves": _halves(both, gpif),
     }
-    s, g = stats(both), stats(gpif)
-    log(f"日米半々: 自動選択 年率 {s['cagr']:+.1%}（下げ {s['maxdd']:.1%}）/ GPIF風 年率 {g['cagr']:+.1%}（下げ {g['maxdd']:.1%}）")
+    a, b = stats(both), stats(gpif)
+    log(f"日米半々: このポートフォリオ 年率 {a['cagr']:+.1%}（下げ {a['maxdd']:.1%}）/ GPIF風 年率 {b['cagr']:+.1%}（下げ {b['maxdd']:.1%}）")
     return result
 
 
 def main():
-    parser = argparse.ArgumentParser(description="日米の株で、過去の成績が一番良い組み方を選んでポートフォリオを出す")
+    parser = argparse.ArgumentParser(description="日米の株で、指数と勢いの強い銘柄を半々にしたポートフォリオを出す")
     parser.add_argument("--site", type=Path, default=ROOT / "site", help="銘柄ごとの月足ファイル（s/）があるフォルダ")
     parser.add_argument("--out", type=Path, default=None, help="書き出す HTML（省略時は site/portfolio.html）")
     args = parser.parse_args()

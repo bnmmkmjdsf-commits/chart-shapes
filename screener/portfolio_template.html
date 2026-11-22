@@ -77,6 +77,8 @@ svg { width: 100%; height: auto; display: block; }
     <h2>過去の成績（1万円がいくらになったか）</h2>
     <div id="chart"></div>
     <div class="scroll"><table id="stats"></table></div>
+    <h2 style="margin-top:14px">前半・後半に分けても勝っていたか</h2>
+    <div class="scroll"><table id="halves"></table></div>
     <p class="note" id="how"></p>
   </section>
 
@@ -92,8 +94,11 @@ svg { width: 100%; height: auto; display: block; }
 
   <section class="card note">
     <ul>
-      <li>勢い（直近の上がり方）・値動きの穏やかさ・指数そのまま など数十通りの組み方を、毎月入れ替えたとして過去で試し、毎月その時点までの直近3年で成績が一番良かった組み方に乗り換えています（「自動選択」。その時点で分かることだけで選ぶので後出しではありません）。</li>
+      <li>組み方: 市場ごとに、半分は指数（日経平均・ナスダック100）、半分は「勢い」の上位銘柄に同じ金額ずつ。毎月の終わりに組み直します。勢い＝12か月前から1か月前までの上がり方（上がっている株はしばらく上がり続けやすい、という昔から知られた傾向）。</li>
       <li>日米半々は、GPIF の国内株・外国株と同じく半分ずつ。為替の動きは入れていません。</li>
+      <li>この形は、数十通りの組み方（銘柄数・値動きの小さい銘柄を多めにする・指数が下向きなら現金で待つ・毎月その時点の一番に乗り換える など）を過去で試して決めました。前半・後半のどちらでも指数に勝ち、下げも大きくならなかったのがこの形です。</li>
+      <li>日本株の株数は1株単位（100株より少ない株を買える証券会社のサービスを使う前提）。</li>
+      <li>売買の少ない銘柄（1日の売買代金が日本株5億円・米国株2000万ドル未満）は入れません。</li>
       <li>今も上場している銘柄だけで試すので、つぶれた銘柄が入らない分、過去の成績は実際より良く出ます。配当は入っていません。売買の手数料は片道0.3%で引いています。</li>
       <li>過去の成績は先の成績を約束しません。売買は自分の判断で。</li>
     </ul>
@@ -136,10 +141,12 @@ function render() {
       <td class="num ${r.cagr >= 0 ? "pos" : "neg"}">${pct(r.cagr)}</td><td class="num neg">${pct(r.maxdd, false)}</td>
       <td class="num">${r.sharpe.toFixed(2)}</td><td class="num">${yen(10000 * (1 + r.total))}円</td></tr>`).join("");
   const markets = view === "both" ? ["jp", "us"] : [view];
-  document.getElementById("how").textContent = markets.map(m => {
-    const d = DATA.markets[m];
-    return `${LABEL[m]}: ${d.tried}通りの組み方を ${d.universe.toLocaleString()} 銘柄で試しました。`;
-  }).join(" ");
+  const base = block.rows[1].name.replace(/（.*/, "");
+  document.getElementById("halves").innerHTML = `<tr><th>期間</th><th>年率</th><th>${esc(base)}の年率</th><th>最大の下げ</th><th>${esc(base)}の最大の下げ</th></tr>` +
+    block.halves.map(h => `<tr><td>${h.label}（${h.from}〜${h.to}）</td>
+      <td class="num ${h.cagr >= 0 ? "pos" : "neg"}">${pct(h.cagr)}${h.cagr > h.index_cagr ? " ○" : ""}</td>
+      <td class="num">${pct(h.index_cagr)}</td><td class="num neg">${pct(h.maxdd, false)}</td><td class="num">${pct(h.index_maxdd, false)}</td></tr>`).join("");
+  document.getElementById("how").textContent = markets.map(m => `${LABEL[m]}: ${DATA.markets[m].universe.toLocaleString()} 銘柄から選びました。`).join(" ");
   holdings(markets);
 }
 
@@ -147,7 +154,7 @@ function holdings(markets) {
   const amount = Number(document.getElementById("amount").value) || 0;
   const fx = Number(document.getElementById("fx").value) || 150;
   const share = 1 / markets.length;
-  document.getElementById("now").textContent = markets.map(m => `${LABEL[m]}は今「${DATA.markets[m].now}」`).join("。") + "。";
+  document.getElementById("now").textContent = `次の月末まで持ち、月末に組み直します（勢いの上位${DATA.top}銘柄は入れ替わります）。`;
   let rows = `<tr><th>銘柄</th><th>割合</th><th>金額（円）</th><th>株価</th><th>株数のめやす</th></tr>`;
   for (const m of markets) {
     const list = DATA.markets[m].holdings;
@@ -155,14 +162,13 @@ function holdings(markets) {
       const money = amount * share * h.weight;
       const priceYen = m === "us" ? h.price * fx : h.price;
       const shares = money / priceYen;
-      const shown = m === "jp" ? `${Math.floor(shares / 100) * 100}株` : `${shares.toFixed(shares < 10 ? 1 : 0)}株`;
+      const shown = m === "jp" ? `${Math.floor(shares)}株` : `${shares.toFixed(shares < 10 ? 1 : 0)}株`;
       const link = m === "jp" ? `https://kabutan.jp/stock/chart?code=${h.code}` : `https://us.kabutan.jp/stocks/${h.code}/chart`;
       const name = h.code === "N225" || h.code === "NDX" ? `${esc(h.name)}（連動する投資信託・ETFで）` : `<a href="${link}" target="_blank" rel="noopener">${esc(h.code)}</a> ${esc(h.name)}`;
       rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${pct(h.weight * share, false)}</td>
         <td class="num">${yen(money)}</td><td class="num">${m === "us" ? "$" : ""}${h.price.toLocaleString()}</td>
         <td class="num">${h.code === "N225" || h.code === "NDX" ? "—" : shown}</td></tr>`;
     }
-    if (!list.length) rows += `<tr><td colspan="5">${LABEL[m]}: 今は株を持たず現金で待つ月です（指数が下向き）</td></tr>`;
   }
   document.getElementById("hold").innerHTML = rows;
 }
