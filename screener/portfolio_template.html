@@ -151,7 +151,7 @@ function holdings(markets) {
       const money = amount * share * h.weight;
       const priceYen = m === "us" ? h.price * fx : h.price;
       const shares = money / priceYen;
-      const shown = shares < 1 ? "1株に届かない" : `${Math.floor(shares)}株`;
+      const shown = `${Math.floor(shares)}株`;
       const link = m === "jp" ? `https://kabutan.jp/stock/chart?code=${h.code}` : `https://us.kabutan.jp/stocks/${h.code}/chart`;
       const name = h.code === "N225" || h.code === "NDX" ? `${esc(h.name)}（連動する投資信託・ETFで）` : `<a href="${link}" target="_blank" rel="noopener">${esc(h.code)}</a> ${esc(h.name)}`;
       rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${pct(h.weight * share, false)}</td>
