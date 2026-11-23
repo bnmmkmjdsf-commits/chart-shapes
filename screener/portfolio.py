@@ -7,6 +7,7 @@
 - 半分は上昇率TOP20（「勢い」の上位 TOP 銘柄）に同じ金額ずつ。勢い = 12か月前から1か月前までの上がり方（直近1か月は戻りやすいので除く）。
   上がっている株はしばらく上がり続けやすい、という昔から知られた傾向を使う
 - 日米は GPIF の国内株・外国株と同じく半々
+- ほかに、指数を入れない「上昇率TOP20だけ」を、日米半々と日本25%・米国75%（MIXES）でも出す
 
 この形は、数十通りの組み方（勢いの測り方・銘柄数・値動きの小さい銘柄を多めにする・指数が下向きなら現金で待つ・
 毎月その時点の一番に乗り換える など）を過去で試して比べて決めた。前半・後半のどちらの期間でも指数に勝ち、
@@ -28,6 +29,13 @@ INDEX = {"jp": ("N225", "日経平均"), "us": ("NDX", "ナスダック100")}
 COST = 0.003          # 売り買いした金額にかかる手数料・値幅のずれ（片道 0.3%）
 TOP = 20              # 勢いの上位から組み入れる銘柄数
 CORE = 0.5            # 指数に置く割合
+# 日米を合わせた組み方。jp は日本株に置く割合、core は各市場で指数に置く割合。
+# 日本25%・米国75% は、上昇率TOP20だけで日本の割合を0〜100%に変えて試し、増え方÷値動きが一番良かったあたり
+MIXES = [
+    {"key": "both", "label": "日米半々", "jp": 0.5, "core": CORE, "name": "このポートフォリオ（日米半々）"},
+    {"key": "top", "label": f"TOP{TOP} 半々", "jp": 0.5, "core": 0.0, "name": f"上昇率TOP{TOP}だけ（日米半々）"},
+    {"key": "top_us", "label": f"TOP{TOP} 米国多め", "jp": 0.25, "core": 0.0, "name": f"上昇率TOP{TOP}だけ（日本25%・米国75%）"},
+]
 MIN_HISTORY = 25      # 候補に入れるのに要る月足の本数
 MIN_PRICE = {"jp": 300, "us": 5}   # 低位株（値が飛びやすい）は外す
 MAX_JUMP = 3.0        # 1か月で3倍・3分の1になった足がある銘柄は、データの誤り（株式分割など）かもしれないので外す
@@ -180,11 +188,13 @@ def build(site, log=print):
         table, strategies, latest = backtest(close, market)
         index_r, mom_r = table[0], table[1]
         ours = index_r * CORE + mom_r * (1 - CORE)
-        mix[market] = (ours, index_r)
-        w = latest[0] * CORE + latest[1] * (1 - CORE)
-        holdings = [{"code": close.columns[j], "name": names[close.columns[j]], "weight": round(float(w[j]), 4),
-                     "price": float(close.iloc[-1, j])}
-                    for j in np.argsort(w)[::-1] if w[j] > 0]
+        mix[market] = (index_r, mom_r)
+        last = close.iloc[-1]
+        index_code = INDEX[market][0]
+        top = [{"code": close.columns[j], "name": names[close.columns[j]], "price": float(last.iloc[j]),
+                "rise": round(float(close.iloc[-2, j] / close.iloc[-13, j] - 1), 4)}
+               for j in np.nonzero(latest[1])[0]]
+        top.sort(key=lambda x: x["rise"], reverse=True)
         name = INDEX[market][1]
         result["markets"][market] = {
             "universe": int(close.shape[1]),
@@ -193,24 +203,31 @@ def build(site, log=print):
             "rows": [_row(f"このポートフォリオ（{name}半分＋上昇率TOP{TOP}半分）", ours),
                      _row(name, index_r), _row(f"参考: 上昇率TOP{TOP}だけ", mom_r)],
             "halves": _halves(ours, index_r),
-            "holdings": holdings,
+            "index": {"code": index_code, "name": names[index_code], "price": float(last[index_code])},
+            "top": top,
         }
         a, b = stats(ours), stats(index_r)
         log(f"  このポートフォリオ: 年率 {a['cagr']:+.1%}・最大の下げ {a['maxdd']:.1%}・増え方÷値動き {a['sharpe']:.2f}"
             f" / {name}: 年率 {b['cagr']:+.1%}・最大の下げ {b['maxdd']:.1%}・{b['sharpe']:.2f}")
         for h in result["markets"][market]["halves"]:
             log(f"  {h['label']}（{h['from']}〜{h['to']}）: 年率 {h['cagr']:+.1%}（{name} {h['index_cagr']:+.1%}）")
-        log(f"  今の銘柄: " + "、".join(f"{x['code']} {x['name']}" for x in holdings[:6]) + " ...")
-    # 日米を半々（GPIF の国内株・外国株と同じ考え方）。為替は入れていない
-    both = (mix["jp"][0] * 0.5 + mix["us"][0] * 0.5).dropna()
-    gpif = (mix["jp"][1] * 0.5 + mix["us"][1] * 0.5).loc[both.index]
-    result["both"] = {
-        "months": [str(p) for p in both.index],
-        "rows": [_row("このポートフォリオ（日米半々）", both), _row("GPIF風（日経平均とナスダック100を半々）", gpif)],
-        "halves": _halves(both, gpif),
-    }
-    a, b = stats(both), stats(gpif)
-    log(f"日米半々: このポートフォリオ 年率 {a['cagr']:+.1%}（下げ {a['maxdd']:.1%}）/ GPIF風 年率 {b['cagr']:+.1%}（下げ {b['maxdd']:.1%}）")
+        log(f"  今の上昇率TOP{TOP}: " + "、".join(f"{x['code']} {x['name']}" for x in top[:6]) + " ...")
+    # 日米を合わせる（GPIF の国内株・外国株を半々にするのと同じ考え方）。為替は入れていない
+    gpif = (mix["jp"][0] * 0.5 + mix["us"][0] * 0.5).dropna()
+    result["mixes"] = []
+    for m in MIXES:
+        part = {market: index_r * m["core"] + mom_r * (1 - m["core"]) for market, (index_r, mom_r) in mix.items()}
+        r = (part["jp"] * m["jp"] + part["us"] * (1 - m["jp"])).loc[gpif.index]
+        result["mixes"].append({
+            "key": m["key"], "label": m["label"], "jp": m["jp"], "core": m["core"],
+            "months": [str(p) for p in r.index],
+            "rows": [_row(m["name"], r), _row("GPIF風（日経平均とナスダック100を半々）", gpif)],
+            "halves": _halves(r, gpif),
+        })
+        a = stats(r)
+        log(f"{m['name']}: 年率 {a['cagr']:+.1%}（下げ {a['maxdd']:.1%}）")
+    b = stats(gpif)
+    log(f"GPIF風: 年率 {b['cagr']:+.1%}（下げ {b['maxdd']:.1%}）")
     return result
 
 
