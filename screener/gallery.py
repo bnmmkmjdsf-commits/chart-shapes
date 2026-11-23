@@ -1,4 +1,4 @@
-"""決算の良かった銘柄（業績タブ）と、持ち株・注目の銘柄を、日米それぞれ月足のチャートで並べた HTML ページを作る。
+"""決算の良かった銘柄（業績タブ）と、持ち株・注目の銘柄を、日米それぞれ週足のチャートで並べた HTML ページを作る。
 
 Yahoo Finance と JPX からデータを取って作る。GitHub Actions で平日に動かし、GitHub Pages で公開している。
 
@@ -19,9 +19,10 @@ from . import cross, earnings, jpx, prices, published, watch
 
 # チャートに描く足の本数
 CHART_BARS = 52
-# チャートの足（月足だけ）と、描く移動平均の本数（短期・中期・長期）。持ち株と注目の札の「抜け」は、短期線と中期線で見る。
-# 日足などほかの足は、銘柄を押した先の株探で見る。日足は、決算の発表からの値動きと今の株価のためだけに取る
-FRAMES = {"m": {"label": "月足", "ma": (12, 24, 60)}}
+# 銘柄ごとのファイルに入れる足と、描く移動平均の本数（短期・中期・長期）。
+# カードのチャートと、持ち株・注目の札の「抜け」（短期線と中期線）は週足で見る。月足はポートフォリオ（screener/portfolio.py）が使う。
+# 日足などほかの足は、銘柄を押した先の株探で見る。日足は、週足を作るのと、決算の発表からの値動き・今の株価・売買代金に使う
+FRAMES = {"w": {"label": "週足", "ma": (13, 26, 52)}, "m": {"label": "月足", "ma": (12, 24, 60)}}
 TEMPLATE = Path(__file__).with_name("gallery_template.html")
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "site" / "index.html"
 # 米国株の業種は Yahoo のセクター（11分類）を日本語にして出す。日本株は JPX の33業種をそのまま使う
@@ -119,21 +120,22 @@ def _fill_live_close(bars, price):
 MARKET_CLOSE = {"jp": ("Asia/Tokyo", 15, 30), "us": ("America/New_York", 16, 0)}
 
 
-def _month_done(start, market):
-    """その月（start はその月の1日）の取引が終わったか（翌月に入ったか）"""
-    tz = MARKET_CLOSE[market][0]
-    return pd.Timestamp.now(tz) >= pd.Timestamp(start.date()).tz_localize(tz) + pd.DateOffset(months=1)
+def _week_done(monday, market):
+    """その週（monday はその週の月曜）の取引が終わったか（金曜の大引けを過ぎたか）。祝日は見ない"""
+    tz, hour, minute = MARKET_CLOSE[market]
+    end = pd.Timestamp(monday.date()).tz_localize(tz) + pd.Timedelta(days=4, hours=hour, minutes=minute)
+    return pd.Timestamp.now(tz) >= end
 
 
-def _crosses(info, monthly, market):
-    """全銘柄の、月足でのいちばん新しい抜け {コード: {"m": [向き（上抜けが1）, 何本前か]}}。持ち株と注目のカードの札に使う。
+def _crosses(info, weekly, market):
+    """全銘柄の、週足でのいちばん新しい抜け {コード: {"w": [向き（上抜けが1）, 何本前か]}}。持ち株と注目のカードの札に使う。
 
-    途中の月は終値がまだ動くので、取引が終わった直近の月までで見る
+    途中の週は終値がまだ動くので、取引が終わった直近の週までで見る
     """
-    close = monthly["close"]
-    done = len(close) if _month_done(close.index[-1], market) else len(close) - 1
-    short, mid, _ = cross.moving_averages(close, FRAMES["m"]["ma"])
-    return {info.at[symbol, "code"]: {"m": list(last)}
+    close = weekly["close"]
+    done = len(close) if _week_done(close.index[-1], market) else len(close) - 1
+    short, mid, _ = cross.moving_averages(close, FRAMES["w"]["ma"])
+    return {info.at[symbol, "code"]: {"w": list(last)}
             for symbol, last in cross.last_cross(short, mid, done).items() if symbol in info.index}
 
 
@@ -208,16 +210,17 @@ def _build(market, log, site):
     wide = info.index[(info["market_cap"] >= HOLD_MIN_MARKET_CAP[market]) & info["price"].notna()].tolist()
     wide += [symbol for symbol, _, _ in INDEXES[market].values()]  # 指数は時価総額も株価も無いので、決め打ちで入れる
     log(f"{market}: 株価を取るのは {len(wide):,} 銘柄。日足を取得中...")
-    daily = prices.fetch_bars(wide, "1d", "6mo", "日足", log)  # 決算の発表（直近45日）からの値動きと、今の株価に使う
+    daily = prices.fetch_bars(wide, "1d", "2y", "日足", log)  # 週足（52週線とチャートの52本）を作れるよう2年取る
     _fill_live_close(daily, info["price"])
+    weekly = prices.to_weekly(daily)  # 週足は日足から作る（別に取らない）
     log(f"{market}: 月足を取得中...")
     monthly = prices.fetch_bars(wide, "1mo", "10y", "月足", log)  # 60か月線とチャートの52本が描けるよう長く取る
     _fill_live_close(monthly, info["price"])
-    count = _stock_files(info, {"m": monthly}, site / STOCK_DIR / market)
+    count = _stock_files(info, {"w": weekly, "m": monthly}, site / STOCK_DIR / market)
     log(f"{market}: 銘柄ごとのチャートのファイルを {count:,} 個書き出しました")
     _write_liquid(info, daily, site / STOCK_DIR / market, market, log)
     # cross は持ち株と注目のカードの札、prices は今の株価（☆を付けてからの値動きと、持ち株に足すコードの確かめに使う）
-    result = {"cross": _crosses(info, monthly, market), "prices": _prices(info, daily)}
+    result = {"cross": _crosses(info, weekly, market), "prices": _prices(info, daily)}
     if market == "jp":
         # 日本株の業績タブ（株探の決算速報で、好決算と、良くなった決算（改善）のあと株価が上がった銘柄）
         earn = earnings.build(info, {"d": daily}, log)
