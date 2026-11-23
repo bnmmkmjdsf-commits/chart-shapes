@@ -97,7 +97,7 @@ const COLORS = ["var(--s1)", "var(--s2)", "var(--s3)"];
 const pct = (v, sign = true) => (sign && v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
 const yen = v => Math.round(v).toLocaleString("ja-JP");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-let view = "both";
+let view = DATA.mixes[0].key;  // 先頭の組み方（screener/portfolio.py の MIXES）を最初に出す
 
 function chart(block) {
   const W = 900, H = 300, L = 46, R = 10, T = 10, B = 26;
