@@ -37,13 +37,14 @@ h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 16px; margin: 0 0 8px; }
 a { color: var(--accent); }
 .sub { color: var(--muted); margin: 0; font-size: 13px; }
-.market { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+.market { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.market button { border: 1px solid var(--line) !important; border-radius: 8px; }
 .market button { border: 0; background: var(--surface); color: var(--fg); padding: 8px 14px; font: inherit; cursor: pointer; }
 .market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; white-space: normal; }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 11em; }
 th { color: var(--muted); font-weight: 400; font-size: 12px; }
 .num { font-family: var(--font-num); }
 .pos { color: var(--up); } .neg { color: var(--down); }
@@ -67,11 +68,7 @@ svg { width: 100%; height: auto; display: block; }
     <a href="./">← 業績・持ち株へ</a>
     <p class="sub" id="sub"></p>
   </header>
-  <div class="market" role="tablist" aria-label="市場">
-    <button type="button" role="tab" data-view="both" aria-selected="true">日米半々</button>
-    <button type="button" role="tab" data-view="jp" aria-selected="false">日本株</button>
-    <button type="button" role="tab" data-view="us" aria-selected="false">米国株</button>
-  </div>
+  <div class="market" id="views" role="tablist" aria-label="組み方"></div>
 
   <section class="card">
     <h2>過去の成績（1万円がいくらになったか）</h2>
@@ -122,31 +119,33 @@ function chart(block) {
 
 function render() {
   document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-selected", b.dataset.view === view));
-  const block = view === "both" ? DATA.both : DATA.markets[view];
+  const mix = DATA.mixes.find(m => m.key === view);
+  const block = mix || DATA.markets[view];
   document.getElementById("sub").textContent = `${DATA.built} 時点・${block.months[0]} 〜 ${block.months.at(-1)} で試した成績`;
   document.getElementById("chart").innerHTML = chart(block);
   document.getElementById("stats").innerHTML = `<tr><th>組み方</th><th>年率</th><th>最大の下げ</th><th>増え方÷値動き</th><th>1万円→</th></tr>` +
     block.rows.map((r, k) => `<tr><td><span class="key" style="background:${COLORS[k]}"></span>${esc(r.name)}</td>
       <td class="num ${r.cagr >= 0 ? "pos" : "neg"}">${pct(r.cagr)}</td><td class="num neg">${pct(r.maxdd, false)}</td>
       <td class="num">${r.sharpe.toFixed(2)}</td><td class="num">${yen(10000 * (1 + r.total))}円</td></tr>`).join("");
-  const markets = view === "both" ? ["jp", "us"] : [view];
+  const markets = mix ? ["jp", "us"] : [view];
   const base = block.rows[1].name.replace(/（.*/, "");
   document.getElementById("halves").innerHTML = `<tr><th>期間</th><th>年率</th><th>${esc(base)}の年率</th><th>最大の下げ</th><th>${esc(base)}の最大の下げ</th></tr>` +
     block.halves.map(h => `<tr><td>${h.label}（${h.from}〜${h.to}）</td>
       <td class="num ${h.cagr >= 0 ? "pos" : "neg"}">${pct(h.cagr)}${h.cagr > h.index_cagr ? " ○" : ""}</td>
       <td class="num">${pct(h.index_cagr)}</td><td class="num neg">${pct(h.maxdd, false)}</td><td class="num">${pct(h.index_maxdd, false)}</td></tr>`).join("");
   document.getElementById("how").textContent = markets.map(m => `${LABEL[m]}: ${DATA.markets[m].universe.toLocaleString()} 銘柄から選びました。`).join(" ");
-  holdings(markets);
+  // 市場ごとの割合（share）と、その中で指数に置く割合（core）
+  holdings(mix ? [["jp", mix.jp, mix.core], ["us", 1 - mix.jp, mix.core]] : [[view, 1, DATA.core]]);
 }
 
-function holdings(markets) {
+function holdings(parts) {
   const amount = Number(document.getElementById("amount").value) || 0;
   const fx = Number(document.getElementById("fx").value) || 150;
-  const share = 1 / markets.length;
   document.getElementById("now").textContent = `次の月末まで持ち、月末に組み直します（上昇率TOP${DATA.top}は入れ替わります）。`;
-  let rows = `<tr><th>銘柄</th><th>割合</th><th>金額（円）</th><th>株価</th><th>株数のめやす</th></tr>`;
-  for (const m of markets) {
-    const list = DATA.markets[m].holdings;
+  let rows = `<tr><th>銘柄</th><th>上昇率</th><th>割合</th><th>金額（円）</th><th>株価</th><th>株数のめやす</th></tr>`;
+  for (const [m, share, core] of parts) {
+    const d = DATA.markets[m];
+    const list = [...(core > 0 ? [{...d.index, weight: core}] : []), ...d.top.map(h => ({...h, weight: (1 - core) / d.top.length}))];
     for (const h of list) {
       const money = amount * share * h.weight;
       const priceYen = m === "us" ? h.price * fx : h.price;
@@ -154,7 +153,7 @@ function holdings(markets) {
       const shown = `${Math.floor(shares)}株`;
       const link = m === "jp" ? `https://kabutan.jp/stock/chart?code=${h.code}` : `https://us.kabutan.jp/stocks/${h.code}/chart`;
       const name = h.code === "N225" || h.code === "NDX" ? `${esc(h.name)}（連動する投資信託・ETFで）` : `<a href="${link}" target="_blank" rel="noopener">${esc(h.code)}</a> ${esc(h.name)}`;
-      rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${pct(h.weight * share, false)}</td>
+      rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${h.rise === undefined ? "—" : (h.rise > 0 ? "+" : "") + Math.round(h.rise * 100) + "%"}</td><td class="num">${pct(h.weight * share, false)}</td>
         <td class="num">${yen(money)}</td><td class="num">${m === "us" ? "$" : ""}${h.price.toLocaleString()}</td>
         <td class="num">${h.code === "N225" || h.code === "NDX" ? "—" : shown}</td></tr>`;
     }
@@ -162,6 +161,8 @@ function holdings(markets) {
   document.getElementById("hold").innerHTML = rows;
 }
 
+document.getElementById("views").innerHTML = [...DATA.mixes.map(m => [m.key, m.label]), ["jp", "日本株"], ["us", "米国株"]]
+  .map(([key, label]) => `<button type="button" role="tab" data-view="${key}">${esc(label)}</button>`).join("");
 document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
 document.getElementById("amount").addEventListener("input", render);
 document.getElementById("fx").addEventListener("input", render);
