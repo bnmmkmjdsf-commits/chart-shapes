@@ -4,7 +4,7 @@
 
 組み方（市場ごと。毎月の終わりに組み直す）:
 - 半分は指数（日経平均・ナスダック100）。土台にして値下がりを和らげる
-- 半分は「勢い」の上位 TOP 銘柄に同じ金額ずつ。勢い = 12か月前から1か月前までの上がり方（直近1か月は戻りやすいので除く）。
+- 半分は上昇率TOP20（「勢い」の上位 TOP 銘柄）に同じ金額ずつ。勢い = 12か月前から1か月前までの上がり方（直近1か月は戻りやすいので除く）。
   上がっている株はしばらく上がり続けやすい、という昔から知られた傾向を使う
 - 日米は GPIF の国内株・外国株と同じく半々
 
@@ -35,7 +35,7 @@ MAX_JUMP = 3.0        # 1か月で3倍・3分の1になった足がある銘柄�
 
 STRATEGIES = [
     {"kind": "index", "name": "指数そのまま"},
-    {"kind": "mom", "look": 12, "top": TOP, "name": f"勢いの上位{TOP}銘柄だけ"},
+    {"kind": "mom", "look": 12, "top": TOP, "name": f"上昇率TOP{TOP}だけ"},
 ]
 
 
@@ -190,8 +190,8 @@ def build(site, log=print):
             "universe": int(close.shape[1]),
             "liquid": liquid is not None,
             "months": [str(p) for p in ours.index],
-            "rows": [_row(f"このポートフォリオ（{name}半分＋勢いの上位{TOP}銘柄半分）", ours),
-                     _row(name, index_r), _row(f"参考: 勢いの上位{TOP}銘柄だけ", mom_r)],
+            "rows": [_row(f"このポートフォリオ（{name}半分＋上昇率TOP{TOP}半分）", ours),
+                     _row(name, index_r), _row(f"参考: 上昇率TOP{TOP}だけ", mom_r)],
             "halves": _halves(ours, index_r),
             "holdings": holdings,
         }

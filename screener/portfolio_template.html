@@ -143,7 +143,7 @@ function holdings(markets) {
   const amount = Number(document.getElementById("amount").value) || 0;
   const fx = Number(document.getElementById("fx").value) || 150;
   const share = 1 / markets.length;
-  document.getElementById("now").textContent = `次の月末まで持ち、月末に組み直します（勢いの上位${DATA.top}銘柄は入れ替わります）。`;
+  document.getElementById("now").textContent = `次の月末まで持ち、月末に組み直します（上昇率TOP${DATA.top}は入れ替わります）。`;
   let rows = `<tr><th>銘柄</th><th>割合</th><th>金額（円）</th><th>株価</th><th>株数のめやす</th></tr>`;
   for (const m of markets) {
     const list = DATA.markets[m].holdings;
