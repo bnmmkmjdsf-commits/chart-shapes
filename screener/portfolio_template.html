@@ -97,7 +97,7 @@ svg { width: 100%; height: auto; display: block; }
       <li>組み方: 市場ごとに、半分は指数（日経平均・ナスダック100）、半分は「勢い」の上位銘柄に同じ金額ずつ。毎月の終わりに組み直します。勢い＝12か月前から1か月前までの上がり方（上がっている株はしばらく上がり続けやすい、という昔から知られた傾向）。</li>
       <li>日米半々は、GPIF の国内株・外国株と同じく半分ずつ。為替の動きは入れていません。</li>
       <li>この形は、数十通りの組み方（銘柄数・値動きの小さい銘柄を多めにする・指数が下向きなら現金で待つ・毎月その時点の一番に乗り換える など）を過去で試して決めました。前半・後半のどちらでも指数に勝ち、下げも大きくならなかったのがこの形です。</li>
-      <li>日本株の株数は1株単位（100株より少ない株を買える証券会社のサービスを使う前提）。</li>
+      <li>株数は1株単位（切り捨て）。日本株は100株より少ない株を買える証券会社のサービスを使う前提。</li>
       <li>売買の少ない銘柄（1日の売買代金が日本株5億円・米国株2000万ドル未満）は入れません。</li>
       <li>今も上場している銘柄だけで試すので、つぶれた銘柄が入らない分、過去の成績は実際より良く出ます。配当は入っていません。売買の手数料は片道0.3%で引いています。</li>
       <li>過去の成績は先の成績を約束しません。売買は自分の判断で。</li>
@@ -162,7 +162,7 @@ function holdings(markets) {
       const money = amount * share * h.weight;
       const priceYen = m === "us" ? h.price * fx : h.price;
       const shares = money / priceYen;
-      const shown = m === "jp" ? `${Math.floor(shares)}株` : `${shares.toFixed(shares < 10 ? 1 : 0)}株`;
+      const shown = shares < 1 ? "1株に届かない" : `${Math.floor(shares)}株`;
       const link = m === "jp" ? `https://kabutan.jp/stock/chart?code=${h.code}` : `https://us.kabutan.jp/stocks/${h.code}/chart`;
       const name = h.code === "N225" || h.code === "NDX" ? `${esc(h.name)}（連動する投資信託・ETFで）` : `<a href="${link}" target="_blank" rel="noopener">${esc(h.code)}</a> ${esc(h.name)}`;
       rows += `<tr><td>${name}<span class="mkt">${LABEL[m]}</span></td><td class="num">${pct(h.weight * share, false)}</td>
