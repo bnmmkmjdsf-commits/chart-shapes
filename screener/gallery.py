@@ -43,10 +43,12 @@ INFO_COLUMNS = ["code", "name", "sector", "market_cap", "price"]
 # 株価を取る銘柄の時価総額の下限（日本株は全銘柄、米国株は3億ドル以上）。
 # 業績タブ・持ち株・注目のどの銘柄でもチャートを出せるよう広く取る。米国株は数が多いので下限を置く
 HOLD_MIN_MARKET_CAP = {"jp": 0, "us": 3e8}
-# 業績タブ（好決算・改善）に載せる銘柄の、1日の売買代金（終値 × 出来高）の下限（日本株は5億円、米国株は2000万ドル）。
+# 業績タブ（好決算・改善）に載せる銘柄の、1日の売買代金（終値 × 出来高）の下限（日本株は30億円、米国株は2億ドル）。
 # 売りたいときにすぐ売れる銘柄だけにする。売買代金は直近 TURNOVER_DAYS 日の中央値で見る
 # （平均でなく中央値にするのは、決算の発表の日などに出来高が跳ねた数日だけで入らないようにするため）
-MIN_TURNOVER = {"jp": 5e8, "us": 2e7}
+MIN_TURNOVER = {"jp": 30e8, "us": 2e8}
+# ポートフォリオ（screener/portfolio.py）が使う銘柄の、1日の売買代金の下限（日本株は5億円、米国株は2000万ドル）。業績タブより広く取る
+PORTFOLIO_MIN_TURNOVER = {"jp": 5e8, "us": 2e7}
 TURNOVER_DAYS = 20
 # 銘柄ごとのチャートのファイルを置くフォルダ（ページと同じ場所の下。その下に市場ごとのフォルダ）
 STOCK_DIR = "s"
@@ -255,11 +257,11 @@ def _mark_since(earn, market, log):
 
 
 def _write_liquid(info, daily, folder, market, log):
-    """ポートフォリオ（screener/portfolio.py）が使う、1日の売買代金が MIN_TURNOVER 以上の銘柄のコード（_liquid.json）。
+    """ポートフォリオ（screener/portfolio.py）が使う、1日の売買代金が PORTFOLIO_MIN_TURNOVER 以上の銘柄のコード（_liquid.json）。
     売買の少ない銘柄を組み入れないため"""
     turnover = (daily["close"] * daily["volume"]).iloc[-TURNOVER_DAYS:].median()
     codes = sorted(info.at[symbol, "code"] for symbol, value in turnover.items()
-                   if symbol in info.index and value >= MIN_TURNOVER[market])
+                   if symbol in info.index and value >= PORTFOLIO_MIN_TURNOVER[market])
     (folder / "_liquid.json").write_text(json.dumps(codes), encoding="utf-8")
     log(f"{market}: 売買代金が足りる銘柄 {len(codes):,} 個（ポートフォリオ用）")
 
