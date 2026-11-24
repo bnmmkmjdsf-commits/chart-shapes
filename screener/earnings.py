@@ -149,7 +149,7 @@ WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
 NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
 # 良くなった決算の見出し（改善）。好決算（点数 MIN_SCORE 以上）に入らなかったものを、業績タブの「改善」に載せる
 IMPROVE = re.compile(r"赤字縮小|黒字浮上|黒字転換|増益|上方修正|増配|増額")
-# 決算の発表からの上がり幅が、相場全体（指数）よりこれだけ大きい銘柄だけ、好決算・改善に載せる（%）。相場も良い決算と見た銘柄に絞る
+# 決算の発表から株価がこれだけ上がり、かつ相場全体（指数）よりもこれだけ大きく上がった銘柄だけ、好決算・改善に載せる（%）。相場も良い決算と見た銘柄に絞る
 MIN_MOVE = 5.0
 
 
@@ -241,7 +241,7 @@ def build(info, frames, log=print):
 
     返すのは {"days": 見た日数, "stocks": 好決算 [{code, name, sector, date, title, score, rate, move, excess}], "improve": 改善 [...]}。
     move は発表からの上がり幅、excess はそこから日経平均の上がり幅を引いたもの（相場全体より何%上がったか）。
-    excess が MIN_MOVE 以上の銘柄だけ載せる（相場全体が上がっただけの銘柄を入れないため）
+    move と excess の両方が MIN_MOVE 以上の銘柄だけ載せる（株価が上がっていて、相場全体が上がっただけでもない銘柄）
     株探が読めないときは stocks が空。
     """
     ranked = load(log)
@@ -260,7 +260,7 @@ def build(info, frames, log=print):
             continue
         row = info.loc[symbol]
         move, excess = moves(item["at"], symbol)
-        if excess is None or excess < MIN_MOVE:
+        if excess is None or excess < MIN_MOVE or move < MIN_MOVE:  # 株価+MIN_MOVE%以上、かつ相場全体より+MIN_MOVE%以上
             continue
         stocks.append({**item, "move": move, "excess": excess, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"]})
@@ -274,7 +274,7 @@ def build(info, frames, log=print):
         if item["code"] in in_good or symbol not in info.index or symbol not in close.columns:
             continue
         move, excess = moves(item["at"], symbol)
-        if excess is None or excess < MIN_MOVE:
+        if excess is None or excess < MIN_MOVE or move < MIN_MOVE:  # 株価+MIN_MOVE%以上、かつ相場全体より+MIN_MOVE%以上
             continue
         row = info.loc[symbol]
         improve_stocks.append({**item, "move": move, "excess": excess, "name": row["name"] or item["code"],
@@ -286,7 +286,7 @@ def build(info, frames, log=print):
 
 # 米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から拾う。株探と違い GitHub Actions からも読める
 # 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。改善: 赤字だが、予想を US_MIN_SURPRISE % 以上上回った（赤字縮小にあたる）。
-# どちらも、発表からの株価の上がり幅が、相場全体（ナスダック100）より MIN_MOVE % 以上大きい銘柄だけ
+# どちらも、発表から株価が MIN_MOVE % 以上上がり、かつ相場全体（ナスダック100）より MIN_MOVE % 以上大きく上がった銘柄だけ
 US_MIN_SURPRISE = 10.0
 # 予想がこれより小さい（0に近い）と、少しの差でも何百%にもなるので外す（ドル）
 US_MIN_ESTIMATE = 0.10
@@ -380,7 +380,7 @@ def build_us(info, close, log=print):
         move = us_move_since(r["when"], r.get("Timing"), close[symbol]) if symbol in close.columns else None
         index = MARKET_INDEX["us"]
         excess = _excess(move, us_move_since(r["when"], r.get("Timing"), close[index]) if index in close.columns else None)
-        if excess is None or excess < MIN_MOVE:
+        if excess is None or excess < MIN_MOVE or move < MIN_MOVE:  # 株価+MIN_MOVE%以上、かつ相場全体より+MIN_MOVE%以上
             continue
         row = info.loc[symbol]
         item = {"code": row["code"], "date": f"{r['when'].month}/{r['when'].day:02d}",
