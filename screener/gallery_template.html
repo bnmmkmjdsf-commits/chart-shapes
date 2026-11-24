@@ -180,6 +180,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .badge { flex: none; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.cu { border-color: var(--up); color: var(--up); }
 .badge.cd { border-color: var(--down); color: var(--down); }
+/* 業績タブに入って NEW_DAYS 日以内の銘柄の「新」 */
+.badge.nw { padding: 0 6px; border-color: var(--up); background: var(--up); color: #fff; }
 .card .alerts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .card .alerts:empty { display: none; }
 .holdadd { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -303,6 +305,10 @@ const detailUrl = (market, code) => market === "jp"
   ? `https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`
   : `https://us.kabutan.jp/stocks/${encodeURIComponent(code.replace(/-/g, "."))}`;
 
+// 業績タブに入った日（since。"2026-11-20"）から NEW_DAYS 日のあいだは「新」を付ける
+const NEW_DAYS = 3;
+const isNew = (since) => Boolean(since) && (Date.now() - new Date(`${since}T00:00:00`).getTime()) / 86400000 < NEW_DAYS;
+const shortDate = (since) => { const [, m, d] = since.split("-"); return `${Number(m)}/${Number(d)}`; };
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // 業績タブ。DATA[市場].earn の stocks が好決算（強い順）、improve が改善（決算のあと株価が上がった順）。
@@ -482,10 +488,10 @@ function card(market, s, opts = {}) {
     : `<button type="button" class="star" data-fav-market="${market}" data-code="${esc(s.code)}" aria-pressed="${Boolean(fav)}" aria-label="${fav ? "注目から外す" : "注目に入れる"}">${fav ? "★" : "☆"}</button>`;
   return `<div class="card">
     <a href="${esc(detailUrl(market, s.code))}" target="_blank" rel="noopener">
-      <div class="top"><span class="nm"><span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span></div>
+      <div class="top"><span class="nm">${opts.note && isNew(opts.note.since) ? `<span class="badge nw">新</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span></div>
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
       ${since}
-      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move > 0 ? "gain" : opts.note.move < 0 ? "loss" : ""}">${pct(opts.note.move)}</b></div>` : ""}` : ""}
+      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move > 0 ? "gain" : opts.note.move < 0 ? "loss" : ""}">${pct(opts.note.move)}</b>${opts.note.since ? `・${shortDate(opts.note.since)}から` : ""}</div>` : ""}` : ""}
       ${opts.own && !opts.note ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
       ${s.body ?? chart(s)}
     </a>
