@@ -231,8 +231,27 @@ def _build(market, log, site):
         except Exception as error:
             log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は、公開中のページのものを残します")
             earn = _published_us_earn(log)
-    result["earn"] = _liquid(earn, market, info, daily, log)
+    result["earn"] = _mark_since(_liquid(earn, market, info, daily, log), market, log)
     return result
+
+
+def _mark_since(earn, market, log):
+    """業績タブの銘柄に、一覧に入った日（since。日付の文字列）を付ける。ページが「新」と「11/20から」を出すのに使う。
+
+    公開中のページの同じ一覧（好決算・改善）にもう入っていた銘柄は、そのときの日付を引き継ぐ。新しく入った銘柄は今日。
+    前の形のページ（since が無い）に入っていた銘柄は、いつ入ったか分からないので空にする（「新」も日付も出さない）
+    """
+    today = f"{pd.Timestamp.now(MARKET_CLOSE[market][0]):%Y-%m-%d}"
+    try:
+        before = json.loads(published.payload())[market]["earn"]
+    except Exception as error:
+        log(f"  公開中のページの業績タブが読めないので、入った日は今日にします（{error}）")
+        before = {}
+    out = dict(earn)
+    for key in ("stocks", "improve"):
+        known = {s["code"]: s.get("since", "") for s in before.get(key, [])}
+        out[key] = [{**s, "since": known[s["code"]] if s["code"] in known else today} for s in earn.get(key, [])]
+    return out
 
 
 def _write_liquid(info, daily, folder, market, log):
