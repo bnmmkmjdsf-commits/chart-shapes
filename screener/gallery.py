@@ -286,7 +286,8 @@ def _published_us_earn(log):
     except Exception as error:
         log(f"  公開中のページの米国株の業績も使えません（{error}）。空にします")
         return empty
-    keep = lambda items: [s for s in items if s.get("move") is not None and s["move"] >= earnings.MIN_MOVE]
+    keep = lambda items: [s for s in items if s.get("excess", s.get("move")) is not None
+                          and s.get("excess", s.get("move")) >= earnings.MIN_MOVE]
     return {"days": earn.get("days", earnings.DAYS), "stocks": keep(earn.get("stocks", [])), "improve": keep(earn.get("improve", []))}
 
 

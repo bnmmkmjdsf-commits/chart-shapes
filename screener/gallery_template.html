@@ -491,7 +491,7 @@ function card(market, s, opts = {}) {
       <div class="top"><span class="nm">${opts.note && isNew(opts.note.since) ? `<span class="badge nw">新</span>` : ""}<span class="name" title="${esc(s.name)}">${esc(s.name)}</span></span></div>
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
       ${since}
-      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move > 0 ? "gain" : opts.note.move < 0 ? "loss" : ""}">${pct(opts.note.move)}</b>${opts.note.since ? `・${shortDate(opts.note.since)}から` : ""}</div>` : ""}` : ""}
+      ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move > 0 ? "gain" : opts.note.move < 0 ? "loss" : ""}">${pct(opts.note.move)}</b>${opts.note.excess != null ? `（相場より ${pct(opts.note.excess)}）` : ""}${opts.note.since ? `・${shortDate(opts.note.since)}から` : ""}</div>` : ""}` : ""}
       ${opts.own && !opts.note ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
       ${s.body ?? chart(s)}
     </a>
@@ -557,10 +557,10 @@ function render() {
       ? `（1日の売買代金${isUs ? `${earn.min_turnover / 1e4}万ドル` : `${earn.min_turnover / 1e8}億円`}以上）`
       : "";
     sub.textContent = (isUs
-      ? (isImprove ? `直近${days}日の決算で、赤字だが1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`
-        : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価も5%以上上がった米国株`)
-      : (isImprove ? `株探の決算速報（直近${days}日）で、赤字縮小・黒字浮上・増益・上方修正・増配など良くなった決算（好決算を除く）のあと、株価も5%以上上がった日本株`
-        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価も5%以上上がった日本株`)) + limit;
+      ? (isImprove ? `直近${days}日の決算で、赤字だが1株利益が予想を大きく上回り、発表から株価が相場全体より5%以上上がった米国株`
+        : `直近${days}日の決算で1株利益が予想を大きく上回り、発表から株価が相場全体より5%以上上がった米国株`)
+      : (isImprove ? `株探の決算速報（直近${days}日）で、赤字縮小・黒字浮上・増益・上方修正・増配など良くなった決算（好決算を除く）のあと、株価が相場全体より5%以上上がった日本株`
+        : `株探の決算速報（直近${days}日）で業績が強く、発表から株価が相場全体より5%以上上がった日本株`)) + limit;
     const order = "売買代金の大きい順";
     head.innerHTML = all.length ? `<strong>${all.length.toLocaleString()}銘柄</strong>${order}に${list.length}銘柄を表示` : "";
     grid.innerHTML = list.length

@@ -149,7 +149,7 @@ WEAK = re.compile(r"減益|下方修正|赤字|減額|減配|未定に")
 NOT_WEAK = re.compile(r"縮小|黒字浮上|黒字転換|増益|上方修正|増配")
 # 良くなった決算の見出し（改善）。好決算（点数 MIN_SCORE 以上）に入らなかったものを、業績タブの「改善」に載せる
 IMPROVE = re.compile(r"赤字縮小|黒字浮上|黒字転換|増益|上方修正|増配|増額")
-# 決算の発表からこれだけ上がった銘柄だけ、好決算・改善に載せる（%）。相場も良い決算と見た銘柄に絞る
+# 決算の発表からの上がり幅が、相場全体（指数）よりこれだけ大きい銘柄だけ、好決算・改善に載せる（%）。相場も良い決算と見た銘柄に絞る
 MIN_MOVE = 5.0
 
 
@@ -210,6 +210,17 @@ def weak(items):
             if v["at"] > strong_at.get(v["code"], "")]
 
 
+# 相場全体として比べる指数（日本株は日経平均、米国株はナスダック100）。日足の表の列名（Yahoo の記号）
+MARKET_INDEX = {"jp": "^N225", "us": "^NDX"}
+
+
+def _excess(move, index_move):
+    """銘柄の上がり幅から、同じ期間の相場全体（指数）の上がり幅を引いたもの。指数が無いときは銘柄の上がり幅のまま"""
+    if move is None:
+        return None
+    return round(move - index_move, 1) if index_move is not None else move
+
+
 def move_since(at, close):
     """決算を出した日からの株価の動き（%）。close は日足の終値（行が日付）。
 
@@ -228,44 +239,54 @@ def move_since(at, close):
 def build(info, frames, log=print):
     """業績タブのデータ。frames は {"d": 日足}（取引の終わった足だけの表）。発表からの株価の動きに使う。
 
-    返すのは {"days": 見た日数, "stocks": 好決算 [{code, name, sector, date, title, score, rate, move}], "improve": 改善 [...]}。
+    返すのは {"days": 見た日数, "stocks": 好決算 [{code, name, sector, date, title, score, rate, move, excess}], "improve": 改善 [...]}。
+    move は発表からの上がり幅、excess はそこから日経平均の上がり幅を引いたもの（相場全体より何%上がったか）。
+    excess が MIN_MOVE 以上の銘柄だけ載せる（相場全体が上がっただけの銘柄を入れないため）
     株探が読めないときは stocks が空。
     """
     ranked = load(log)
     stocks = []
+    close = frames["d"]["close"] if "d" in frames else pd.DataFrame()
+    index = close[MARKET_INDEX["jp"]] if MARKET_INDEX["jp"] in close.columns else None
+
+    def moves(at, symbol):
+        """(発表からの上がり幅, 相場全体より何%上がったか)"""
+        move = move_since(at, close[symbol])
+        return move, _excess(move, move_since(at, index) if index is not None else None)
+
     for item in ranked:
         symbol = f"{item['code']}.T"
-        if symbol not in info.index:
+        if symbol not in info.index or symbol not in close.columns:
             continue
         row = info.loc[symbol]
-        move = move_since(item["at"], frames["d"]["close"][symbol]) if "d" in frames and symbol in frames["d"]["close"].columns else None
-        if move is None or move < MIN_MOVE:
+        move, excess = moves(item["at"], symbol)
+        if excess is None or excess < MIN_MOVE:
             continue
-        stocks.append({**item, "move": move, "name": row["name"] or item["code"],
+        stocks.append({**item, "move": move, "excess": excess, "name": row["name"] or item["code"],
                        "sector": "" if pd.isna(row["sector"]) else row["sector"]})
-    log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日・発表から +{MIN_MOVE:g}% 以上）")
+    log(f"業績タブ: {len(stocks):,} 銘柄（点数 {MIN_SCORE} 以上・直近 {DAYS} 日・相場全体より +{MIN_MOVE:g}% 以上）")
     # 良くなった決算（好決算に入らなかったもの）のあと、株価が上がっている銘柄（上がった順）。
     # 同じ銘柄が好決算と改善の両方に出ないよう、45日のうちに好決算の見出しがある銘柄は改善に載せない
     in_good = {item["code"] for item in ranked}
     improve_stocks = []
     for item in load_improve(log):
         symbol = f"{item['code']}.T"
-        if item["code"] in in_good or symbol not in info.index or "d" not in frames or symbol not in frames["d"]["close"].columns:
+        if item["code"] in in_good or symbol not in info.index or symbol not in close.columns:
             continue
-        move = move_since(item["at"], frames["d"]["close"][symbol])
-        if move is None or move < MIN_MOVE:
+        move, excess = moves(item["at"], symbol)
+        if excess is None or excess < MIN_MOVE:
             continue
         row = info.loc[symbol]
-        improve_stocks.append({**item, "move": move, "name": row["name"] or item["code"],
+        improve_stocks.append({**item, "move": move, "excess": excess, "name": row["name"] or item["code"],
                                "sector": "" if pd.isna(row["sector"]) else row["sector"]})
     improve_stocks.sort(key=lambda s: s["move"], reverse=True)
-    log(f"改善: {len(improve_stocks):,} 銘柄（発表から +{MIN_MOVE:g}% 以上）")
+    log(f"改善: {len(improve_stocks):,} 銘柄（相場全体より +{MIN_MOVE:g}% 以上）")
     return {"days": DAYS, "stocks": stocks, "improve": improve_stocks}
 
 
 # 米国株は、Yahoo Finance の決算の予定表（1株利益の予想と実績）から拾う。株探と違い GitHub Actions からも読める
 # 好決算: 黒字で、1株利益が予想を US_MIN_SURPRISE % 以上上回った。改善: 赤字だが、予想を US_MIN_SURPRISE % 以上上回った（赤字縮小にあたる）。
-# どちらも、発表から株価が MIN_MOVE % 以上上がった銘柄だけ
+# どちらも、発表からの株価の上がり幅が、相場全体（ナスダック100）より MIN_MOVE % 以上大きい銘柄だけ
 US_MIN_SURPRISE = 10.0
 # 予想がこれより小さい（0に近い）と、少しの差でも何百%にもなるので外す（ドル）
 US_MIN_ESTIMATE = 0.10
@@ -357,12 +378,14 @@ def build_us(info, close, log=print):
             continue
         good = actual > 0  # 黒字なら好決算、赤字なら改善
         move = us_move_since(r["when"], r.get("Timing"), close[symbol]) if symbol in close.columns else None
-        if move is None or move < MIN_MOVE:
+        index = MARKET_INDEX["us"]
+        excess = _excess(move, us_move_since(r["when"], r.get("Timing"), close[index]) if index in close.columns else None)
+        if excess is None or excess < MIN_MOVE:
             continue
         row = info.loc[symbol]
         item = {"code": row["code"], "date": f"{r['when'].month}/{r['when'].day:02d}",
                 "title": f"1株利益 {actual:.2f}ドル（予想 {est:.2f}ドルを {surprise:.0f}% 上回る{'' if good else '・赤字'}）",
-                "surprise": round(float(surprise), 1), "move": move,
+                "surprise": round(float(surprise), 1), "move": move, "excess": excess,
                 "name": row["name"] or row["code"], "sector": "" if pd.isna(row["sector"]) else row["sector"]}
         (stocks if good else improve_stocks).append(item)
     stocks.sort(key=lambda s: s["surprise"], reverse=True)
