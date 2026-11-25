@@ -241,6 +241,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="tabs">
   <div class="market" role="tablist" aria-label="市場">
     <button type="button" role="tab" id="tab-earn" data-market="earn" aria-selected="true">業績</button>
+    <button type="button" role="tab" id="tab-rank" data-market="rank" aria-selected="false">売買代金</button>
     <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 注目</button>
     <button type="button" role="tab" id="tab-hold" data-market="hold" aria-selected="false">持ち株</button>
   </div>
@@ -309,6 +310,10 @@ const detailUrl = (market, code) => market === "jp"
 const NEW_DAYS = 3;
 const isNew = (since) => Boolean(since) && (Date.now() - new Date(`${since}T00:00:00`).getTime()) / 86400000 < NEW_DAYS;
 const shortDate = (since) => { const [, m, d] = since.split("-"); return `${Number(m)}/${Number(d)}`; };
+// 売買代金の表示。日本株は「1,234億円」、米国株は「56.7億ドル」
+const turnoverText = (market, v) => market === "jp"
+  ? `${Math.round(v / 1e8).toLocaleString()}億円`
+  : `${(v / 1e8).toLocaleString("en-US", { maximumFractionDigits: 1 })}億ドル`;
 const today = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const priceOf = (market, code) => (DATA[market].prices || {})[code] ?? null;
 // 業績タブ。DATA[市場].earn の stocks が好決算（強い順）、improve が改善（決算のあと株価が上がった順）。
@@ -492,7 +497,8 @@ function card(market, s, opts = {}) {
       <div class="meta"><span class="id">${esc(s.code)}${now != null ? `<span class="price">${money(market, now)}</span>` : ""}${s.sector ? `<span class="sector">${esc(s.sector)}</span>` : ""}</span></div>
       ${since}
       ${opts.note ? `<div class="note"><span class="when">${esc(opts.note.date)}</span>${esc(opts.note.title)}</div>${opts.note.move != null ? `<div class="since">決算の発表から <b class="${opts.note.move > 0 ? "gain" : opts.note.move < 0 ? "loss" : ""}">${pct(opts.note.move)}</b>${opts.note.excess != null ? `（相場より ${pct(opts.note.excess)}）` : ""}${opts.note.since ? `・${shortDate(opts.note.since)}から` : ""}</div>` : ""}` : ""}
-      ${opts.own && !opts.note ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
+      ${opts.rank ? `<div class="since">${opts.rank.n}位・売買代金 <b>${turnoverText(market, opts.rank.turnover)}</b>${opts.rank.change != null ? `・前日比 <b class="${opts.rank.change > 0 ? "gain" : opts.rank.change < 0 ? "loss" : ""}">${pct(opts.rank.change)}</b>` : ""}</div>` : ""}
+      ${opts.own && !opts.note && !opts.rank ? `<div class="alerts">${crossBadges(market, s.code)}</div>` : ""}
       ${s.body ?? chart(s)}
     </a>
     ${button}
@@ -522,8 +528,9 @@ function render() {
   const isFavTab = state.market === "fav";
   const isHold = state.market === "hold";
   const isEarn = state.market === "earn";
+  const isRank = state.market === "rank";
   document.getElementById("shapes").hidden = !isEarn;
-  document.getElementById("earnmarkets").hidden = !isEarn;
+  document.getElementById("earnmarkets").hidden = !isEarn && !isRank;  // 日本株・米国株の切り替えは、業績と売買代金で使う
   document.getElementById("hold").hidden = !isHold;
   document.getElementById("holdgrid").hidden = !isHold;
   grid.hidden = isHold;
@@ -539,6 +546,20 @@ function render() {
     grid.innerHTML = "";
     document.getElementById("more").hidden = true;
     renderHold();
+    return;
+  }
+
+  if (isRank) {
+    // 売買代金タブ。DATA[市場].rank は、取引が終わった直近の1日の売買代金の大きい順（上位50）
+    const m = state.earnMarket, rank = DATA[m].rank || {}, all = rank.stocks || [];
+    document.querySelectorAll("[data-earn-market]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.earnMarket === m)));
+    const list = all.slice(0, state.shown);
+    sub.textContent = `${rank.date || ""}の売買代金の多い${m === "us" ? "米国株" : "日本株"}（上位${all.length}）`;
+    head.innerHTML = all.length ? `<strong>${all.length}銘柄</strong>売買代金の大きい順に${list.length}銘柄を表示` : "";
+    grid.innerHTML = list.length
+      ? list.map((s, i) => ownCard(m, s.code, { rank: { ...s, n: i + 1 } }, s)).join("")
+      : `<p class="empty">売買代金のデータを、いま読めていません。</p>`;
+    document.getElementById("more").hidden = state.shown >= all.length;
     return;
   }
 
