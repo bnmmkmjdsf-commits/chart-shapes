@@ -120,6 +120,32 @@ def _fill_live_close(bars, price):
 
 # 市場ごとの時間帯と大引けの時刻
 MARKET_CLOSE = {"jp": ("Asia/Tokyo", 15, 30), "us": ("America/New_York", 16, 0)}
+# 売買代金タブに載せる銘柄の数（日米それぞれ。SBI証券のランキングと同じ50位まで）
+RANK_COUNT = 50
+
+
+def _day_done(day, market):
+    """その日の取引が終わったか（大引けを過ぎたか）。祝日は見ない"""
+    tz, hour, minute = MARKET_CLOSE[market]
+    return pd.Timestamp.now(tz) >= pd.Timestamp(day.date()).tz_localize(tz) + pd.Timedelta(hours=hour, minutes=minute)
+
+
+def _rank(info, daily, market):
+    """売買代金タブ。取引が終わった直近の1日の売買代金（終値 × 出来高）の大きい順に RANK_COUNT 銘柄。指数は入れない。
+
+    返すのは {"date": "2026/11/25", "stocks": [{code, name, sector, turnover（売買代金）, change（前の日からの値動き %）}]}
+    """
+    close, volume = daily["close"], daily["volume"]
+    at = -1 if _day_done(close.index[-1], market) else -2
+    turnover = (close.iloc[at] * volume.iloc[at]).reindex(info.index).dropna()
+    turnover = turnover[[not symbol.startswith("^") for symbol in turnover.index]]
+    stocks = []
+    for symbol, value in turnover.nlargest(RANK_COUNT).items():
+        row, now, before = info.loc[symbol], close.iloc[at][symbol], close.iloc[at - 1][symbol]
+        stocks.append({"code": row["code"], "name": row["name"] or row["code"],
+                       "sector": "" if pd.isna(row["sector"]) else row["sector"], "turnover": round(float(value)),
+                       "change": round(float((now / before - 1) * 100), 1) if before and not pd.isna(before) else None})
+    return {"date": f"{close.index[at]:%Y/%m/%d}", "stocks": stocks}
 
 
 def _week_done(monday, market):
@@ -234,6 +260,7 @@ def _build(market, log, site):
             log(f"米国株の決算が読めませんでした（{error}）。業績タブの米国株は、公開中のページのものを残します")
             earn = _published_us_earn(log)
     result["earn"] = _mark_since(_liquid(earn, market, info, daily, log), market, log)
+    result["rank"] = _rank(info, daily, market)
     return result
 
 
