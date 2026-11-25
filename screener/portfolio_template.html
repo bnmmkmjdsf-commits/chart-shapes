@@ -58,6 +58,9 @@ svg { width: 100%; height: auto; display: block; }
 .note { color: var(--muted); font-size: 13px; }
 .note li { margin-bottom: 4px; }
 .scroll { overflow-x: auto; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0 0; }
+.nav a { text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
 .mkt { color: var(--muted); font-size: 11px; margin-left: 4px; }
 </style>
 </head>
@@ -65,9 +68,9 @@ svg { width: 100%; height: auto; display: block; }
 <main class="wrap">
   <header>
     <h1>ポートフォリオ</h1>
-    <a href="./">← 業績・持ち株へ</a>
     <p class="sub" id="sub"></p>
   </header>
+  <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html" aria-current="page">ポートフォリオ</a><a href="quiz.html">チャート当てクイズ</a><a href="shape.html">次のモデルナ探し</a></nav>
   <div class="market" id="views" role="tablist" aria-label="組み方"></div>
 
   <section class="card">
