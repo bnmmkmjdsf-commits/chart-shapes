@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>次のモデルナ探し</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+/* 見出し → ページの行き来 → 日本株・米国株の切り替え → 当たるの？ → 似ている銘柄のカード（形を重ねた小さなグラフ） */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --model: #8a94a8;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --model: #7d879c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --model: #7d879c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+a { color: var(--accent); }
+.sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0 0; }
+.nav a { text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+.market { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.market button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 8px 14px; font: inherit; cursor: pointer; }
+.market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+.num { font-family: var(--font-num); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 8px 0; }
+.fact { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.fact b { font-family: var(--font-num); font-size: 20px; display: block; }
+.fact span { color: var(--muted); font-size: 12px; }
+.note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.pick { margin: 0; }
+.pick h3 { font-size: 15px; margin: 0; display: flex; justify-content: space-between; gap: 8px; }
+.pick h3 .num { color: var(--muted); font-size: 13px; font-weight: 400; white-space: nowrap; }
+.pick .meta { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+.pick svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; gap: 0 14px; font-size: 12px; color: var(--muted); margin: 4px 0 0; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.model { font-size: 13px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>次のモデルナ探し</h1>
+  <p class="sub" id="sub"></p>
+  <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html">ポートフォリオ</a><a href="quiz.html">チャート当てクイズ</a><a href="shape.html" aria-current="page">次のモデルナ探し</a></nav>
+
+  <div class="market" role="tablist" aria-label="市場">
+    <button type="button" role="tab" data-market="us" aria-selected="true">米国株</button>
+    <button type="button" role="tab" data-market="jp" aria-selected="false">日本株</button>
+  </div>
+
+  <section class="card">
+    <h2>当たるの？</h2>
+    <p id="how" class="note" style="margin:0"></p>
+    <div class="facts" id="facts"></div>
+    <p class="note" id="verdict"></p>
+  </section>
+
+  <div class="grid" id="picks"></div>
+</main>
+<script>
+const DATA = __DATA__;
+const LABEL = {jp: "日本株", us: "米国株"};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
+let market = "us";
+
+// 今の形（太い線）と、手本の上がる前の形（点線）を重ねる。どちらも値段の高さ・振れ幅をそろえてある
+function overlay(a, b) {
+  const W = 300, H = 110, P = 8;
+  const all = [...a, ...b], lo = Math.min(...all), hi = Math.max(...all);
+  const x = i => P + (W - 2 * P) * i / (a.length - 1);
+  const y = v => P + (H - 2 * P) * (1 - (v - lo) / (hi - lo || 1));
+  const path = s => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="形のくらべ">
+    <path d="${path(b)}" fill="none" stroke="var(--model)" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="${path(a)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/></svg>`;
+}
+
+function link(m, code) {
+  return m === "jp" ? `https://kabutan.jp/stock/chart?code=${code}` : `https://us.kabutan.jp/stocks/${code}/chart`;
+}
+
+function render() {
+  document.querySelectorAll("[data-market]").forEach(b => b.setAttribute("aria-selected", b.dataset.market === market));
+  const d = DATA.markets[market];
+  document.getElementById("sub").textContent =
+    `過去に1年で${DATA.surge}倍以上になった銘柄の「上がる前の${DATA.shape}か月の形」に、今の形がそっくりな銘柄（${DATA.built} 時点）`;
+  const c = d.check;
+  document.getElementById("how").textContent =
+    `${LABEL[market]}の手本は ${d.models} 個。過去の${c.months}か月で、毎月その時点までに分かった手本だけを使って似ている上位20銘柄を選んだとすると、その後1年で:`;
+  document.getElementById("facts").innerHTML = [
+    ["2倍以上になった割合", c.double, c.double_all],
+    ["半分以下になった割合", c.half, c.half_all],
+    ["上がり方の真ん中", c.median, c.median_all],
+  ].map(([label, v, all]) => `<div class="fact"><span>${label}</span><b>${label.includes("真ん中") ? pct(v) : (v * 100).toFixed(1) + "%"}</b>
+    <span>全体は ${label.includes("真ん中") ? pct(all) : (all * 100).toFixed(1) + "%"}</span></div>`).join("");
+  const odds = c.double / c.double_all;
+  document.getElementById("verdict").textContent = odds >= 1.5
+    ? `大当たり（2倍以上）は全体の約${odds.toFixed(1)}倍出やすい一方、大はずれ（半分以下）も出やすい。当たりもはずれも大きい「くじ」です。`
+    : `全体と大きな差はありません。形だけで当てるのは難しい市場です。遊びとしてどうぞ。`;
+  document.getElementById("picks").innerHTML = d.picks.map(p => `
+    <article class="card pick">
+      <h3><span><a href="${link(market, p.code)}" target="_blank" rel="noopener">${esc(p.code)}</a> ${esc(p.name)}</span>
+        <span class="num">似ている度 ${Math.round(p.sim * 100)}%</span></h3>
+      <p class="meta">株価 <span class="num">${market === "us" ? "$" : ""}${p.price.toLocaleString()}</span>・この1年 <span class="num ${p.rise >= 0 ? "pos" : "neg"}">${pct(p.rise)}</span></p>
+      ${overlay(p.shape, p.model.shape)}
+      <div class="legend"><span><i style="border-color:var(--accent)"></i>今（${p.from}〜${p.to}）</span>
+        <span><i style="border-color:var(--model);border-top-style:dashed"></i>手本（${p.model.from}〜${p.model.start}）</span></div>
+      <p class="model">手本: <a href="${link(market, p.model.code)}" target="_blank" rel="noopener">${esc(p.model.code)}</a> ${esc(p.model.name)} は、この形のあと1年で <b class="num pos">${p.model.times}倍</b></p>
+    </article>`).join("");
+}
+
+document.querySelectorAll("[data-market]").forEach(b => b.addEventListener("click", () => { market = b.dataset.market; render(); }));
+render();
+</script>
+</body>
+</html>

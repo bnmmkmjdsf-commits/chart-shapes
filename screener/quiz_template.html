@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>チャート当てクイズ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+/* 見出し → ページの行き来 → 市場の切り替えと成績 → 問題のチャート → 上がる・下がるのボタン → 答え */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma: #b88700;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma: #e6c34a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma: #e6c34a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0; }
+a { color: var(--accent); }
+.sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0 0; }
+.nav a { text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin: 12px 0; }
+.market { display: flex; gap: 6px; }
+.market button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.score { font-size: 14px; color: var(--muted); }
+.score b { color: var(--fg); font-family: var(--font-num); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.q { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; gap: 0 14px; font-size: 12px; color: var(--muted); margin: 4px 0 0; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.axis { fill: var(--muted); font-size: 12px; font-family: var(--font-num); }
+.answers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.answers button, .next { font: inherit; font-size: 17px; font-weight: 600; padding: 14px; border-radius: 10px; cursor: pointer; border: 2px solid; background: var(--surface); }
+.answers .up { color: var(--up); border-color: var(--up); }
+.answers .down { color: var(--down); border-color: var(--down); }
+.answers button:disabled { opacity: 0.35; cursor: default; }
+.next { width: 100%; margin-top: 12px; color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.result { margin-top: 12px; }
+.result .verdict { font-size: 20px; font-weight: 700; margin: 0; }
+.result p { margin: 4px 0 0; }
+.num { font-family: var(--font-num); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.muted { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>チャート当てクイズ</h1>
+  <p class="sub">名前を隠した月足のチャート。この後の1年、株価は上がった？下がった？</p>
+  <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html">ポートフォリオ</a><a href="quiz.html" aria-current="page">チャート当てクイズ</a><a href="shape.html">次のモデルナ探し</a></nav>
+
+  <div class="bar">
+    <div class="market" role="tablist" aria-label="市場">
+      <button type="button" role="tab" data-market="all" aria-selected="true">日米</button>
+      <button type="button" role="tab" data-market="jp" aria-selected="false">日本株</button>
+      <button type="button" role="tab" data-market="us" aria-selected="false">米国株</button>
+    </div>
+    <div class="score" id="score"></div>
+  </div>
+
+  <section class="card">
+    <p class="q" id="question">問題を作っています...</p>
+    <div id="chart"></div>
+    <div class="legend"><span><i style="border-color:var(--fg)"></i>月末の株価</span><span><i style="border-color:var(--ma)"></i>12か月の平均</span></div>
+    <div class="answers">
+      <button type="button" class="up" data-guess="up" disabled>上がる ↑</button>
+      <button type="button" class="down" data-guess="down" disabled>下がる ↓</button>
+    </div>
+    <div class="result" id="result" hidden></div>
+    <button type="button" class="next" id="next" hidden>次の問題 →</button>
+  </section>
+  <p class="muted">売買の多い銘柄（日本株の1日の売買代金5億円以上・米国株2000万ドル以上）から、銘柄と時期をでたらめに選んでいます。成績はこの端末だけに残ります。</p>
+</main>
+<script>
+const SHOW = 48;      // 問題に出す月数（それより短い銘柄は、あるだけ）
+const MIN_SHOW = 24;
+const AHEAD = 12;     // 答えの月数
+const LABEL = {jp: "日本株", us: "米国株"};
+const KEY = "quiz-score-v1";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+let market = "all", lists = {}, now = null;
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {n: 0, ok: 0, streak: 0, best: 0}; } catch { return {n: 0, ok: 0, streak: 0, best: 0}; } }
+function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {} }
+function showScore() {
+  const s = load();
+  document.getElementById("score").innerHTML = s.n
+    ? `正解 <b>${s.ok}</b> / ${s.n}（<b>${Math.round(100 * s.ok / s.n)}%</b>）・連続 <b>${s.streak}</b>・最高 <b>${s.best}</b>`
+    : "まだ0問";
+}
+
+// 月の名前。最後の足が今月（取引の途中）
+function monthName(index, length) {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (length - 1 - index));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function list(m) {
+  if (!lists[m]) lists[m] = (await (await fetch(`s/${m}/_liquid.json`)).json()).filter(c => c !== "N225" && c !== "NDX");
+  return lists[m];
+}
+
+// 銘柄と時期をでたらめに選ぶ。答えの1年が終わっている時期で、データの抜けや飛び（株式分割の誤りなど）が無いところだけ
+async function pick() {
+  for (let tries = 0; tries < 30; tries++) {
+    const m = market === "all" ? (Math.random() < 0.5 ? "jp" : "us") : market;
+    const codes = await list(m);
+    const code = codes[Math.floor(Math.random() * codes.length)];
+    let data;
+    try { data = await (await fetch(`s/${m}/${code}.json`)).json(); } catch { continue; }
+    const close = [...(data.m.p || []), ...(data.m.c || [])];
+    const last = close.length - 2 - AHEAD;  // 答えの終わりが、取引の終わった月になるように
+    if (last < MIN_SHOW) continue;
+    const cut = MIN_SHOW + Math.floor(Math.random() * (last - MIN_SHOW + 1));
+    const from = Math.max(0, cut - SHOW);
+    const part = close.slice(from, cut + AHEAD + 1);
+    if (part.some(v => v == null || !(v > 0))) continue;
+    if (part.slice(1).some((v, i) => Math.abs(Math.log(v / part[i])) > Math.log(3))) continue;
+    return {m, code, name: data.name, sector: data.sector, close, from, cut, length: close.length};
+  }
+  throw new Error("問題を作れませんでした");
+}
+
+function draw(q, reveal) {
+  const W = 700, H = 300, L = 8, R = 8, T = 12, B = reveal ? 26 : 10;
+  const end = q.cut + AHEAD;
+  const span = end - q.from;  // 答えの分の場所も先に空けておく（見た目で答えが分からないように）
+  const ma = i => { if (i < 11) return null; const s = q.close.slice(i - 11, i + 1); return s.some(v => v == null) ? null : s.reduce((a, b) => a + b) / 12; };
+  const lastShown = reveal ? end : q.cut;
+  const vals = [];
+  for (let i = q.from; i <= lastShown; i++) { vals.push(q.close[i]); const a = ma(i); if (a) vals.push(a); }
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const x = i => L + (W - L - R) * (i - q.from) / span;
+  const y = v => T + (H - T - B) * (1 - (Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo) || 1));
+  const line = (a, b, f) => { let d = ""; for (let i = a; i <= b; i++) { const v = f(i); if (v) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; } return d; };
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="問題のチャート">`;
+  svg += `<line x1="${x(q.cut)}" x2="${x(q.cut)}" y1="${T}" y2="${H - B}" stroke="var(--line)" stroke-dasharray="4 4"/>`;
+  if (!reveal) svg += `<text class="axis" x="${(x(q.cut) + W - R) / 2}" y="${H / 2}" text-anchor="middle">？</text>`;
+  svg += `<path d="${line(q.from, lastShown, ma)}" fill="none" stroke="var(--ma)" stroke-width="1.5"/>`;
+  svg += `<path d="${line(q.from, q.cut, i => q.close[i])}" fill="none" stroke="var(--fg)" stroke-width="2.2"/>`;
+  if (reveal) {
+    const up = q.close[end] >= q.close[q.cut];
+    svg += `<path d="${line(q.cut, end, i => q.close[i])}" fill="none" stroke="var(${up ? "--up" : "--down"})" stroke-width="2.8"/>`;
+    svg += `<text class="axis" x="${L}" y="${H - 6}">${monthName(q.from, q.length)}</text>`;
+    svg += `<text class="axis" x="${x(q.cut)}" y="${H - 6}" text-anchor="middle">${monthName(q.cut, q.length)}</text>`;
+    svg += `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${monthName(end, q.length)}</text>`;
+  }
+  document.getElementById("chart").innerHTML = svg + "</svg>";
+}
+
+async function next() {
+  document.getElementById("result").hidden = true;
+  document.getElementById("next").hidden = true;
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
+  document.getElementById("question").textContent = "問題を作っています...";
+  try { now = await pick(); } catch (e) { document.getElementById("question").textContent = e.message; return; }
+  document.getElementById("question").textContent = `${LABEL[now.m]}・${now.cut - now.from}か月分のチャート。この後の1年は？`;
+  draw(now, false);
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = false);
+}
+
+function answer(guess) {
+  const q = now; if (!q) return;
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
+  const change = q.close[q.cut + AHEAD] / q.close[q.cut] - 1;
+  const ok = (change >= 0) === (guess === "up");
+  const s = load();
+  s.n++; if (ok) { s.ok++; s.streak++; s.best = Math.max(s.best, s.streak); } else s.streak = 0;
+  save(s); showScore();
+  draw(q, true);
+  const link = q.m === "jp" ? `https://kabutan.jp/stock/chart?code=${q.code}` : `https://us.kabutan.jp/stocks/${q.code}/chart`;
+  const el = document.getElementById("result");
+  el.innerHTML = `<p class="verdict ${ok ? "pos" : "neg"}">${ok ? "正解！" : "はずれ…"}</p>
+    <p><a href="${link}" target="_blank" rel="noopener">${esc(q.code)}</a> ${esc(q.name)}<span class="muted">（${esc(q.sector || LABEL[q.m])}）</span></p>
+    <p>${monthName(q.cut, q.length)} → ${monthName(q.cut + AHEAD, q.length)} の1年で <b class="num ${change >= 0 ? "pos" : "neg"}">${change >= 0 ? "+" : ""}${Math.round(change * 100)}%</b></p>`;
+  el.hidden = false;
+  document.getElementById("next").hidden = false;
+}
+
+document.querySelectorAll("[data-guess]").forEach(b => b.addEventListener("click", () => answer(b.dataset.guess)));
+document.getElementById("next").addEventListener("click", next);
+document.querySelectorAll("[data-market]").forEach(b => b.addEventListener("click", () => {
+  market = b.dataset.market;
+  document.querySelectorAll("[data-market]").forEach(x => x.setAttribute("aria-selected", x === b));
+  next();
+}));
+showScore();
+next();
+</script>
+</body>
+</html>

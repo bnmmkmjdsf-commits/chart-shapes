@@ -61,6 +61,10 @@ jobs:
         run: |
           pip install -q -r requirements.txt
           python -u -m screener.portfolio --site site
+      # チャート当てクイズ（site/quiz.html）と次のモデルナ探し（site/shape.html）。こちらも作れなくてもほかは止めない
+      - name: クイズと次のモデルナ探しを作る
+        continue-on-error: true
+        run: python -u -m screener.play --site site
       # gh-pages ブランチは毎回1コミットで作り直す（古いページの履歴はためない）。
       # この push がリポジトリの動きになるので、動きの無い公開リポジトリで定期実行が60日で止まる仕組みにも掛からない
       # main 以外では公開せず、作ったページを Actions の成果物として残す（gh run download で取れる）
@@ -72,6 +76,8 @@ jobs:
           path: |
             site/index.html
             site/portfolio.html
+            site/quiz.html
+            site/shape.html
       - name: gh-pages に公開
         if: github.ref == 'refs/heads/main'
         working-directory: site
