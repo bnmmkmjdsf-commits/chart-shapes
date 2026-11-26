@@ -243,8 +243,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div class="market" role="tablist" aria-label="市場">
     <button type="button" role="tab" id="tab-rank" data-market="rank" aria-selected="true">売買代金</button>
     <button type="button" role="tab" id="tab-earn" data-market="earn" aria-selected="false">業績</button>
-    <button type="button" role="tab" id="tab-hold" data-market="hold" aria-selected="false">持ち株</button>
     <button type="button" role="tab" id="tab-fav" data-market="fav" aria-selected="false">★ 注目</button>
+    <button type="button" role="tab" id="tab-hold" data-market="hold" aria-selected="false">持ち株</button>
   </div>
 
   <div class="market" id="earnmarkets" role="tablist" aria-label="業績の市場" hidden>
@@ -286,7 +286,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <script>
 const DATA = __DATA__;
 const STEP = 20;
-// market は開いているタブ（rank が売買代金、earn が業績、hold が持ち株、fav が注目）。開いたときは、いちばん左の売買代金
+// market は開いているタブ（rank が売買代金、earn が業績、fav が注目、hold が持ち株）。開いたときは、いちばん左の売買代金
 // frame はカードのチャートの足。週足に決めている（日足などほかの足は、銘柄を押した先の株探で見る）
 // shape は業績タブで出す方（good が好決算、improve が改善）
 // earnMarket は業績タブで出す市場
