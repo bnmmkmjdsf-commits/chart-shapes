@@ -6,6 +6,18 @@
   "fav": {
     "jp": [
       {"code": "N225", "price": 0, "from": ""},
+      {"code": "1926", "price": 967, "from": "11/24"},
+      {"code": "6941", "price": 6890, "from": "11/24"},
+      {"code": "3402", "price": 1318, "from": "11/24"},
+      {"code": "6525", "price": 5597, "from": "11/24"},
+      {"code": "6590", "price": 2548, "from": "11/24"},
+      {"code": "7966", "price": 4780, "from": "11/23"},
+      {"code": "6787", "price": 7720, "from": "11/22"},
+      {"code": "7419", "price": 1341, "from": "11/22"},
+      {"code": "6269", "price": 7666, "from": "11/22"},
+      {"code": "1721", "price": 5123, "from": "11/22"},
+      {"code": "4661", "price": 3850, "from": "11/22"},
+      {"code": "6315", "price": 2352, "from": "11/22"},
       {"code": "9962", "price": 3966, "from": "11/15"},
       {"code": "9531", "price": 6782, "from": "11/15"},
       {"code": "8801", "price": 1623, "from": "11/15"},
@@ -15,6 +27,10 @@
     ],
     "us": [
       {"code": "NDX", "price": 0, "from": ""},
+      {"code": "VERX", "price": 17.92, "from": "11/25"},
+      {"code": "TTD", "price": 14.06, "from": "11/25"},
+      {"code": "FLYW", "price": 20.93, "from": "11/22"},
+      {"code": "APEI", "price": 39.77, "from": "11/22"},
       {"code": "AMD", "price": 534.06, "from": "11/16"},
       {"code": "STN", "price": 85.69, "from": "11/15"},
       {"code": "CPRT", "price": 31.83, "from": "11/15"}
