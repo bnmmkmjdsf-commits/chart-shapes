@@ -12,19 +12,19 @@
 /* 見出し → ページの行き来 → 市場の切り替えと成績 → 問題のチャート → 上がる・下がるのボタン → 答え */
 :root {
   --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
-  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma1: #b88700; --ma2: #e0662f; --ma3: #1f8a8a; --shade: rgba(33, 96, 208, 0.07);
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma1: #b88700; --ma2: #e0662f; --ma3: #1f8a8a; --r1: #d6336c; --r2: #7048e8; --r3: #2b8a3e; --shade: rgba(33, 96, 208, 0.07);
   --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
-    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --r1: #f06595; --r2: #9775fa; --r3: #69db7c; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
-  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --r1: #f06595; --r2: #9775fa; --r3: #69db7c; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
@@ -136,7 +136,9 @@ async function pick() {
 function draw() {
   const q = now, f = q.frames[frame], reveal = revealed;
   const narrow = (document.getElementById("chart").clientWidth || 700) < 520;  // スマホは縦長に
-  const W = narrow ? 420 : 700, H = 320, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const rci = f.rci && Object.keys(f.rci).length ? f.rci : null;  // 前に作った問題には RCI が無い
+  const W = narrow ? 420 : 700, PH = 320, RH = rci ? 100 : 0, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const H = PH + RH;
   const total = f.close.length, shown = reveal ? total : f.n;
   const step = (W - L - R) / (reveal ? total : f.n / 0.75);
   const x = i => L + step * (i + 0.5);
@@ -146,11 +148,12 @@ function draw() {
     for (const k of FRAME[frame].ma) if (f.ma[k][i]) vals.push(f.ma[k][i]);
   }
   const good = vals.filter(v => v > 0), lo = Math.log(Math.min(...good)), hi = Math.log(Math.max(...good));
-  const y = v => T + (H - T - B) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
+  const y = v => T + (PH - T - 8) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
+  const ry = v => PH + 6 + (RH - 12 - B) * (1 - (v + 100) / 200);  // RCI の枠（-100〜100）
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="問題のチャート">`;
   const cutX = L + step * f.n;
   svg += `<rect x="${cutX}" y="${T}" width="${W - R - cutX}" height="${H - T - B}" fill="var(--shade)"/>`;
-  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${(H - B) / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
+  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${PH / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
   const bw = Math.max(1, step * 0.7);
   for (let i = 0; i < shown; i++) {
     const o = f.open[i], c = f.close[i], h = f.high[i], l = f.low[i];
@@ -165,6 +168,18 @@ function draw() {
     for (let i = 0; i < shown; i++) { const v = f.ma[k][i]; if (v > 0) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }
     svg += `<path d="${d}" fill="none" stroke="var(--ma${n + 1})" stroke-width="1.4"/>`;
   });
+  if (rci) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${PH}" y2="${PH}" stroke="var(--line)"/>`;
+    for (const v of [80, 0, -80]) {
+      svg += `<line x1="${L}" x2="${W - R}" y1="${ry(v)}" y2="${ry(v)}" stroke="var(--line)" stroke-dasharray="${v ? "3 3" : ""}"/>`;
+      svg += `<text class="axis" x="${W - R - 2}" y="${ry(v) - 2}" text-anchor="end" style="font-size:10px">${v}</text>`;
+    }
+    Object.keys(rci).forEach((k, n) => {
+      let d = "";
+      for (let i = 0; i < shown; i++) { const v = rci[k][i]; if (v !== null && v !== undefined) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${ry(v).toFixed(1)}`; }
+      svg += `<path d="${d}" fill="none" stroke="var(--r${n + 1})" stroke-width="1.3"/>`;
+    });
+  }
   if (reveal) {
     svg += `<text class="axis" x="${L}" y="${H - 6}">${f.from}</text>`;
     svg += `<text class="axis" x="${cutX}" y="${H - 6}" text-anchor="middle">${q.cut}</text>`;
@@ -172,7 +187,8 @@ function draw() {
   }
   document.getElementById("chart").innerHTML = svg + "</svg>";
   document.getElementById("legend").innerHTML = FRAME[frame].ma.map((k, n) =>
-    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("");
+    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("") +
+    (rci ? Object.keys(rci).map((k, n) => `<span><i style="border-color:var(--r${n + 1})"></i>RCI ${k}</span>`).join("") : "");
   document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-selected", b.dataset.frame === frame));
   document.getElementById("question").textContent = reveal ? `${LABEL[q.market]}・答え（色の付いた所が、その後の1年）`
     : `${LABEL[q.market]}・${FRAME[frame].label} ${f.n}本。この後の1年は？`;
