@@ -52,6 +52,12 @@ jobs:
         env:
           MARKETS: ${{ github.event.schedule == '0 22 * * 1-5' && 'us' || github.event.schedule == '30 7 * * 1-5' && 'jp' || inputs.markets || 'both' }}
         run: python -u -m screener.gallery --out site/index.html --markets "$MARKETS"   # -u: 進み具合をその場でログに出す
+      # チャート当てクイズの問題（site/quiz/市場/）。株価を取り直した市場だけ作り直す。作れなくても前の問題を残してほかは止めない
+      - if: ${{ !(inputs.reuse_data || github.event_name == 'push') }}
+        continue-on-error: true
+        env:
+          MARKETS: ${{ github.event.schedule == '0 22 * * 1-5' && 'us' || github.event.schedule == '30 7 * * 1-5' && 'jp' || inputs.markets || 'both' }}
+        run: python -u -m screener.quiz --site site --markets "$MARKETS"
       - if: ${{ inputs.reuse_data || github.event_name == 'push' }}
         run: python -m screener.retemplate --out site/index.html
       # ポートフォリオのページ（site/portfolio.html）。銘柄ごとの月足ファイルから作るので株価は取り直さない。

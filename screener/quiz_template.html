@@ -12,19 +12,19 @@
 /* 見出し → ページの行き来 → 市場の切り替えと成績 → 問題のチャート → 上がる・下がるのボタン → 答え */
 :root {
   --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
-  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma: #b88700;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma1: #b88700; --ma2: #e0662f; --ma3: #1f8a8a; --r1: #d6336c; --r2: #7048e8; --r3: #2b8a3e; --shade: rgba(33, 96, 208, 0.07);
   --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
-    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma: #e6c34a; color-scheme: dark;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --r1: #f06595; --r2: #9775fa; --r3: #69db7c; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
-  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma: #e6c34a; color-scheme: dark;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --r1: #f06595; --r2: #9775fa; --r3: #69db7c; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
@@ -41,6 +41,9 @@ a { color: var(--accent); }
 .market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .score { font-size: 14px; color: var(--muted); }
 .score b { color: var(--fg); font-family: var(--font-num); }
+.frames { display: flex; gap: 6px; margin: 0 0 6px; }
+.frames button { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.frames button[aria-selected="true"] { background: var(--fg); color: var(--surface); border-color: var(--fg); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
 .q { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
 svg { width: 100%; height: auto; display: block; }
@@ -64,7 +67,7 @@ svg { width: 100%; height: auto; display: block; }
 <body>
 <main class="wrap">
   <h1>チャート当てクイズ</h1>
-  <p class="sub">名前を隠した月足のチャート。この後の1年、株価は上がった？下がった？</p>
+  <p class="sub">名前を隠したチャート（日足・週足・月足）。この後の1年、株価は上がった？下がった？</p>
   <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html">ポートフォリオ</a><a href="quiz.html" aria-current="page">チャート当てクイズ</a><a href="shape.html">次のモデルナ探し</a></nav>
 
   <div class="bar">
@@ -77,9 +80,14 @@ svg { width: 100%; height: auto; display: block; }
   </div>
 
   <section class="card">
-    <p class="q" id="question">問題を作っています...</p>
+    <p class="q" id="question">問題を読んでいます...</p>
+    <div class="frames" role="tablist" aria-label="足の種類">
+      <button type="button" role="tab" data-frame="d" aria-selected="false">日足</button>
+      <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
+      <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
+    </div>
     <div id="chart"></div>
-    <div class="legend"><span><i style="border-color:var(--fg)"></i>月末の株価</span><span><i style="border-color:var(--ma)"></i>12か月の平均</span></div>
+    <div class="legend" id="legend"></div>
     <div class="answers">
       <button type="button" class="up" data-guess="up" disabled>上がる ↑</button>
       <button type="button" class="down" data-guess="down" disabled>下がる ↓</button>
@@ -87,16 +95,14 @@ svg { width: 100%; height: auto; display: block; }
     <div class="result" id="result" hidden></div>
     <button type="button" class="next" id="next" hidden>次の問題 →</button>
   </section>
-  <p class="muted">売買の多い銘柄（日本株の1日の売買代金5億円以上・米国株2000万ドル以上）から、銘柄と時期をでたらめに選んでいます。成績はこの端末だけに残ります。</p>
+  <p class="muted">売買の多い銘柄（日本株の1日の売買代金5億円以上・米国株2000万ドル以上）から、銘柄と時期をでたらめに選んでいます。問題は株価の更新のたびに入れ替わります。成績はこの端末だけに残ります。</p>
 </main>
 <script>
-const SHOW = 48;      // 問題に出す月数（それより短い銘柄は、あるだけ）
-const MIN_SHOW = 24;
-const AHEAD = 12;     // 答えの月数
 const LABEL = {jp: "日本株", us: "米国株"};
+const FRAME = {d: {label: "日足", unit: "日", ma: ["5", "25", "75"]}, w: {label: "週足", unit: "週", ma: ["13", "26", "52"]}, m: {label: "月足", unit: "か月", ma: ["12", "24", "60"]}};
 const KEY = "quiz-score-v1";
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-let market = "all", lists = {}, now = null;
+let market = "all", frame = "w", counts = {}, now = null, revealed = false;
 
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {n: 0, ok: 0, streak: 0, best: 0}; } catch { return {n: 0, ok: 0, streak: 0, best: 0}; } }
 function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {} }
@@ -107,95 +113,118 @@ function showScore() {
     : "まだ0問";
 }
 
-// 月の名前。最後の足が今月（取引の途中）
-function monthName(index, length) {
-  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (length - 1 - index));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-async function list(m) {
-  if (!lists[m]) lists[m] = (await (await fetch(`s/${m}/_liquid.json`)).json()).filter(c => c !== "N225" && c !== "NDX");
-  return lists[m];
-}
-
-// 銘柄と時期をでたらめに選ぶ。答えの1年が終わっている時期で、データの抜けや飛び（株式分割の誤りなど）が無いところだけ
-async function pick() {
-  for (let tries = 0; tries < 30; tries++) {
-    const m = market === "all" ? (Math.random() < 0.5 ? "jp" : "us") : market;
-    const codes = await list(m);
-    const code = codes[Math.floor(Math.random() * codes.length)];
-    let data;
-    try { data = await (await fetch(`s/${m}/${code}.json`)).json(); } catch { continue; }
-    const close = [...(data.m.p || []), ...(data.m.c || [])];
-    const last = close.length - 2 - AHEAD;  // 答えの終わりが、取引の終わった月になるように
-    if (last < MIN_SHOW) continue;
-    const cut = MIN_SHOW + Math.floor(Math.random() * (last - MIN_SHOW + 1));
-    const from = Math.max(0, cut - SHOW);
-    const part = close.slice(from, cut + AHEAD + 1);
-    if (part.some(v => v == null || !(v > 0))) continue;
-    if (part.slice(1).some((v, i) => Math.abs(Math.log(v / part[i])) > Math.log(3))) continue;
-    return {m, code, name: data.name, sector: data.sector, close, from, cut, length: close.length};
+async function count(m) {
+  if (counts[m] === undefined) {
+    try { counts[m] = (await (await fetch(`quiz/${m}/index.json`)).json()).count; } catch { counts[m] = 0; }
   }
-  throw new Error("問題を作れませんでした");
+  return counts[m];
 }
 
-function draw(q, reveal) {
-  const W = 700, H = 300, L = 8, R = 8, T = 12, B = reveal ? 26 : 10;
-  const end = q.cut + AHEAD;
-  const span = end - q.from;  // 答えの分の場所も先に空けておく（見た目で答えが分からないように）
-  const ma = i => { if (i < 11) return null; const s = q.close.slice(i - 11, i + 1); return s.some(v => v == null) ? null : s.reduce((a, b) => a + b) / 12; };
-  const lastShown = reveal ? end : q.cut;
+// 問題はページを作るときに市場ごとにまとめて作ってある（screener/quiz.py）。その中からでたらめに選ぶ
+async function pick() {
+  const markets = market === "all" ? ["jp", "us"] : [market];
+  for (let tries = 0; tries < 10; tries++) {
+    const m = markets[Math.floor(Math.random() * markets.length)];
+    const n = await count(m);
+    if (!n) continue;
+    try { return await (await fetch(`quiz/${m}/${Math.floor(Math.random() * n)}.json`)).json(); } catch {}
+  }
+  throw new Error("問題を読めませんでした。少し待ってから開き直してください");
+}
+
+// ローソク足と移動平均。答える前は右の4分の1を「？」の場所にし、答えた後は答えの1年まで全部を並べる。値は対数の目盛り
+function draw() {
+  const q = now, f = q.frames[frame], reveal = revealed;
+  const narrow = (document.getElementById("chart").clientWidth || 700) < 520;  // スマホは縦長に
+  const rci = f.rci && Object.keys(f.rci).length ? f.rci : null;  // 前に作った問題には RCI が無い
+  const W = narrow ? 420 : 700, PH = 320, RH = rci ? 100 : 0, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const H = PH + RH;
+  const total = f.close.length, shown = reveal ? total : f.n;
+  const step = (W - L - R) / (reveal ? total : f.n / 0.75);
+  const x = i => L + step * (i + 0.5);
   const vals = [];
-  for (let i = q.from; i <= lastShown; i++) { vals.push(q.close[i]); const a = ma(i); if (a) vals.push(a); }
-  const lo = Math.min(...vals), hi = Math.max(...vals);
-  const x = i => L + (W - L - R) * (i - q.from) / span;
-  const y = v => T + (H - T - B) * (1 - (Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo) || 1));
-  const line = (a, b, f) => { let d = ""; for (let i = a; i <= b; i++) { const v = f(i); if (v) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; } return d; };
+  for (let i = 0; i < shown; i++) {
+    vals.push(f.high[i], f.low[i]);
+    for (const k of FRAME[frame].ma) if (f.ma[k][i]) vals.push(f.ma[k][i]);
+  }
+  const good = vals.filter(v => v > 0), lo = Math.log(Math.min(...good)), hi = Math.log(Math.max(...good));
+  const y = v => T + (PH - T - 8) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
+  const ry = v => PH + 6 + (RH - 12 - B) * (1 - (v + 100) / 200);  // RCI の枠（-100〜100）
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="問題のチャート">`;
-  svg += `<line x1="${x(q.cut)}" x2="${x(q.cut)}" y1="${T}" y2="${H - B}" stroke="var(--line)" stroke-dasharray="4 4"/>`;
-  if (!reveal) svg += `<text class="axis" x="${(x(q.cut) + W - R) / 2}" y="${H / 2}" text-anchor="middle">？</text>`;
-  svg += `<path d="${line(q.from, lastShown, ma)}" fill="none" stroke="var(--ma)" stroke-width="1.5"/>`;
-  svg += `<path d="${line(q.from, q.cut, i => q.close[i])}" fill="none" stroke="var(--fg)" stroke-width="2.2"/>`;
+  const cutX = L + step * f.n;
+  svg += `<rect x="${cutX}" y="${T}" width="${W - R - cutX}" height="${H - T - B}" fill="var(--shade)"/>`;
+  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${PH / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
+  const bw = Math.max(1, step * 0.7);
+  for (let i = 0; i < shown; i++) {
+    const o = f.open[i], c = f.close[i], h = f.high[i], l = f.low[i];
+    if (!(o > 0 && c > 0 && h > 0 && l > 0)) continue;
+    const color = c >= o ? "var(--up)" : "var(--down)";
+    svg += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(h)}" y2="${y(l)}" stroke="${color}" stroke-width="1"/>`;
+    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
+    svg += `<rect x="${x(i) - bw / 2}" y="${top}" width="${bw}" height="${Math.max(1, bottom - top)}" fill="${color}"/>`;
+  }
+  FRAME[frame].ma.forEach((k, n) => {
+    let d = "";
+    for (let i = 0; i < shown; i++) { const v = f.ma[k][i]; if (v > 0) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }
+    svg += `<path d="${d}" fill="none" stroke="var(--ma${n + 1})" stroke-width="1.4"/>`;
+  });
+  if (rci) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${PH}" y2="${PH}" stroke="var(--line)"/>`;
+    for (const v of [80, 0, -80]) {
+      svg += `<line x1="${L}" x2="${W - R}" y1="${ry(v)}" y2="${ry(v)}" stroke="var(--line)" stroke-dasharray="${v ? "3 3" : ""}"/>`;
+      svg += `<text class="axis" x="${W - R - 2}" y="${ry(v) - 2}" text-anchor="end" style="font-size:10px">${v}</text>`;
+    }
+    Object.keys(rci).forEach((k, n) => {
+      let d = "";
+      for (let i = 0; i < shown; i++) { const v = rci[k][i]; if (v !== null && v !== undefined) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${ry(v).toFixed(1)}`; }
+      svg += `<path d="${d}" fill="none" stroke="var(--r${n + 1})" stroke-width="1.3"/>`;
+    });
+  }
   if (reveal) {
-    const up = q.close[end] >= q.close[q.cut];
-    svg += `<path d="${line(q.cut, end, i => q.close[i])}" fill="none" stroke="var(${up ? "--up" : "--down"})" stroke-width="2.8"/>`;
-    svg += `<text class="axis" x="${L}" y="${H - 6}">${monthName(q.from, q.length)}</text>`;
-    svg += `<text class="axis" x="${x(q.cut)}" y="${H - 6}" text-anchor="middle">${monthName(q.cut, q.length)}</text>`;
-    svg += `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${monthName(end, q.length)}</text>`;
+    svg += `<text class="axis" x="${L}" y="${H - 6}">${f.from}</text>`;
+    svg += `<text class="axis" x="${cutX}" y="${H - 6}" text-anchor="middle">${q.cut}</text>`;
+    svg += `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${q.end}</text>`;
   }
   document.getElementById("chart").innerHTML = svg + "</svg>";
+  document.getElementById("legend").innerHTML = FRAME[frame].ma.map((k, n) =>
+    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("") +
+    (rci ? Object.keys(rci).map((k, n) => `<span><i style="border-color:var(--r${n + 1})"></i>RCI ${k}</span>`).join("") : "");
+  document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-selected", b.dataset.frame === frame));
+  document.getElementById("question").textContent = reveal ? `${LABEL[q.market]}・答え（色の付いた所が、その後の1年）`
+    : `${LABEL[q.market]}・${FRAME[frame].label} ${f.n}本。この後の1年は？`;
 }
 
 async function next() {
+  revealed = false;
   document.getElementById("result").hidden = true;
   document.getElementById("next").hidden = true;
   document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
-  document.getElementById("question").textContent = "問題を作っています...";
+  document.getElementById("question").textContent = "問題を読んでいます...";
   try { now = await pick(); } catch (e) { document.getElementById("question").textContent = e.message; return; }
-  document.getElementById("question").textContent = `${LABEL[now.m]}・${now.cut - now.from}か月分のチャート。この後の1年は？`;
-  draw(now, false);
+  draw();
   document.querySelectorAll("[data-guess]").forEach(b => b.disabled = false);
 }
 
 function answer(guess) {
-  const q = now; if (!q) return;
+  const q = now; if (!q || revealed) return;
   document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
-  const change = q.close[q.cut + AHEAD] / q.close[q.cut] - 1;
-  const ok = (change >= 0) === (guess === "up");
+  const ok = (q.change >= 0) === (guess === "up");
   const s = load();
   s.n++; if (ok) { s.ok++; s.streak++; s.best = Math.max(s.best, s.streak); } else s.streak = 0;
   save(s); showScore();
-  draw(q, true);
-  const link = q.m === "jp" ? `https://kabutan.jp/stock/chart?code=${q.code}` : `https://us.kabutan.jp/stocks/${q.code}/chart`;
+  revealed = true;
+  draw();
+  const link = q.market === "jp" ? `https://kabutan.jp/stock/chart?code=${q.code}` : `https://us.kabutan.jp/stocks/${q.code}/chart`;
   const el = document.getElementById("result");
   el.innerHTML = `<p class="verdict ${ok ? "pos" : "neg"}">${ok ? "正解！" : "はずれ…"}</p>
-    <p><a href="${link}" target="_blank" rel="noopener">${esc(q.code)}</a> ${esc(q.name)}<span class="muted">（${esc(q.sector || LABEL[q.m])}）</span></p>
-    <p>${monthName(q.cut, q.length)} → ${monthName(q.cut + AHEAD, q.length)} の1年で <b class="num ${change >= 0 ? "pos" : "neg"}">${change >= 0 ? "+" : ""}${Math.round(change * 100)}%</b></p>`;
+    <p><a href="${link}" target="_blank" rel="noopener">${esc(q.code)}</a> ${esc(q.name)}<span class="muted">（${esc(q.sector || LABEL[q.market])}）</span></p>
+    <p>${q.cut} → ${q.end} の1年で <b class="num ${q.change >= 0 ? "pos" : "neg"}">${q.change >= 0 ? "+" : ""}${Math.round(q.change * 100)}%</b></p>`;
   el.hidden = false;
   document.getElementById("next").hidden = false;
 }
 
 document.querySelectorAll("[data-guess]").forEach(b => b.addEventListener("click", () => answer(b.dataset.guess)));
+document.querySelectorAll("[data-frame]").forEach(b => b.addEventListener("click", () => { frame = b.dataset.frame; if (now) draw(); }));
 document.getElementById("next").addEventListener("click", next);
 document.querySelectorAll("[data-market]").forEach(b => b.addEventListener("click", () => {
   market = b.dataset.market;

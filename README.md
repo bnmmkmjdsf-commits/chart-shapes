@@ -89,7 +89,9 @@ https://bnmmkmjdsf-commits.github.io/chart-shapes/
 
 どちらもページ上のリンクから開く（`screener/play.py`、見た目は `screener/quiz_template.html`・`screener/shape_template.html`）。株価は取り直さず、銘柄ごとの月足ファイルから作る。
 
-- チャート当てクイズ: 売買代金が足りる銘柄（`_liquid.json`）から、銘柄と時期をでたらめに選び、名前を隠した月足（最大48か月）を出す。その後の1年で上がったか下がったかを当てる。ページが銘柄ごとのファイルを読んで問題を作るので、毎回ちがう問題になる。成績はその端末だけに残る（localStorage の `quiz-score-v1`）
+- チャート当てクイズ: 名前を隠したローソク足（日足120本・週足104本・月足60本まで、移動平均つき。切り替えられる）とRCI（9・26・52）を出し、その後の1年で上がったか下がったかを当てる。
+  問題は株価を取り直すたびに `screener/quiz.py` が作り直す（取り直した市場だけ。市場ごとに120問、`site/quiz/市場/番号.json`）。
+  売買代金が足りる銘柄（`_liquid.json`）からでたらめに選んだ銘柄の日足を10年分取り、答えの1年が終わっているでたらめな日で切る。成績はその端末だけに残る（localStorage の `quiz-score-v1`）
 - 次のモデルナ探し: 過去に1年で3倍以上になった銘柄の「上がる前の12か月の形」を手本にし、今の12か月の形が一番似ている銘柄を20ずつ並べる（形は株価の対数を平均0・ばらつき1にそろえて比べる）。
   当たりやすさも、過去の各月で「その月までに分かった手本」だけを使って選んだとして試し、2倍以上・半分以下になった割合を全体と比べてページに出す。
   米国株では2倍以上になる割合が全体の約2倍だが、半分以下になる割合も高い。日本株では全体とほぼ同じ
@@ -125,7 +127,7 @@ Windows のパス長制限を避けるため、仮想環境はプロジェクト
 | `screener/gallery.py`, `screener/gallery_template.html` | ページの書き出しと、ページの見た目 |
 | `screener/watch.py`, `watch.json` | 持ち株と注目の銘柄（どの端末にも出す共通の一覧） |
 | `screener/portfolio.py`, `screener/portfolio_template.html` | ポートフォリオのページ |
-| `screener/play.py`, `screener/quiz_template.html`, `screener/shape_template.html` | チャート当てクイズと次のモデルナ探し |
+| `screener/play.py`, `screener/quiz.py`, `screener/quiz_template.html`, `screener/shape_template.html` | チャート当てクイズ（問題づくり）と次のモデルナ探し |
 | `screener/published.py`, `screener/retemplate.py` | 公開中のページのデータを取り出す・それを使ってページだけ作り直す |
 
 ## 制約
