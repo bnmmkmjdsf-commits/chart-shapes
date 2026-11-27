@@ -272,7 +272,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   <p class="listhead" id="listhead"></p>
   <div class="transfer" id="transfer" hidden>
-    <p>☆はこの端末だけに残ります。全部の端末に出すときは、Claude に伝えてください。</p>
+    <p>☆はこの端末だけに残ります。ほかの端末とそろえるときは「写す」を押し、出た文字をもう一方の端末の欄に貼って「合流」を押してください。</p>
+    <button type="button" id="copysync">この端末の☆と持ち株を写す</button>
+    <form class="holdadd" id="syncform">
+      <input id="synccode" type="text" autocomplete="off" aria-label="ほかの端末で写した文字" placeholder="ほかの端末で写した文字を貼る（PG1:…）">
+      <button type="submit">合流</button>
+    </form>
     <p id="notice" aria-live="polite"></p>
   </div>
   </div>
@@ -612,6 +617,43 @@ document.querySelector("main").addEventListener("click", (e) => {
     holdNotice = `${drop.dataset.code} を外しました。`;
     render();
   }
+});
+// 端末どうしで☆と持ち株をそろえる。この端末で足した分を「PG1:」で始まる文字にして写し、もう一方の端末に貼って合流する。
+// 合流は足すだけで、消すことはしない（両方の端末の☆と持ち株を合わせたものになる）
+const SYNC_PREFIX = "PG1:";
+const syncCode = () => SYNC_PREFIX + btoa(unescape(encodeURIComponent(JSON.stringify({ fav: favs, hold: holds }))));
+function mergeSync(text) {
+  const raw = text.trim();
+  if (!raw.startsWith(SYNC_PREFIX)) return [false, "写した文字ではないようです（PG1: で始まる文字を貼ってください）。"];
+  let data;
+  try { data = JSON.parse(decodeURIComponent(escape(atob(raw.slice(SYNC_PREFIX.length))))); } catch { return [false, "文字が途中で切れているようです。もう一度写して貼ってください。"]; }
+  let addedFav = 0, addedHold = 0;
+  for (const f of (data.fav || []).slice().reverse()) {  // 新しく付けた順を保つため、古い方から足す
+    if (f && f.market && f.code && !favOf(f.market, f.code)) { setListed("fav", f.market, f.code, true, f); addedFav++; }
+  }
+  for (const h of data.hold || []) {
+    if (h && h.market && h.code && !hasHold(h.market, h.code)) { setListed("hold", h.market, h.code, true, { market: h.market, code: h.code }); addedHold++; }
+  }
+  return [true, addedFav || addedHold
+    ? `☆を${addedFav}銘柄、持ち株を${addedHold}銘柄足しました。`
+    : "足す銘柄はありませんでした（もう全部そろっています）。"];
+}
+document.getElementById("copysync").addEventListener("click", () => {
+  const code = syncCode();
+  const input = document.getElementById("synccode");
+  const done = () => { notice = "写しました。もう一方の端末で、この下の欄に貼って「合流」を押してください。"; render(); };
+  const fallback = () => { input.value = code; input.select(); notice = "下の欄の文字を全部選んでコピーし、もう一方の端末に貼ってください。"; render(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, fallback);
+  else fallback();
+});
+document.getElementById("syncform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = document.getElementById("synccode");
+  if (!input.value.trim()) return;
+  const [ok, message] = mergeSync(input.value);
+  notice = message;
+  if (ok) input.value = "";
+  render();
 });
 document.getElementById("holdform").addEventListener("submit", (e) => {
   e.preventDefault();
