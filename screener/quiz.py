@@ -1,7 +1,7 @@
 """チャート当てクイズの問題を作る（site/quiz/市場/番号.json と site/quiz/市場/index.json）。
 
 売買代金が足りる銘柄（s/市場/_liquid.json）から COUNT 銘柄をでたらめに選び、日足を長く取って、
-銘柄ごとにでたらめな日（答えの1年が終わっている日）で切る。問題には、その日までの日足・週足・月足のローソク足と移動平均・RCI、
+銘柄ごとにでたらめな日（答えの1年が終わっている日）で切る。問題には、その日までの日足・週足・月足のローソク足と移動平均、
 答えには、その後1年の足を入れる。答えは「切った日の終値」と「1年後の終値」のどちらが高いか。
 
 株価を取り直すたびに、取り直した市場の問題を作り直す（毎回ちがう問題になる）。
@@ -27,7 +27,6 @@ FRAMES = {
     "m": {"rule": "MS", "show": 60, "min": 24, "ma": (12, 24, 60)},
 }
 AGG = {"open": "first", "high": "max", "low": "min", "close": "last"}
-RCI = (9, 26, 52)  # RCI（順位相関指数）の期間。どの足でも同じ
 MAX_JUMP = 3.0  # 1日で3倍・3分の1の動きがある銘柄は、データの誤り（株式分割など）かもしれないので使わない
 
 
@@ -41,24 +40,6 @@ def _resample(daily, rule):
     # 週足は月曜、月足は1日の日付にそろえる
     label = {"W-MON": dict(label="left", closed="left"), "MS": {}}[rule]
     return daily.resample(rule, **label).agg(AGG).dropna(subset=["close"])
-
-
-def _rci(close, start, n):
-    """RCI: 直近 n 本で「日付の新しさの順位」と「値の高さの順位」がどれだけそろっているか（-100〜100）。
-    上がり続けていれば 100、下がり続けていれば -100。start 本目から後ろの各足について出す。足りない足は None"""
-    out = []
-    for i in range(start, len(close)):
-        if i + 1 < n:
-            out.append(None)
-            continue
-        window = close[i + 1 - n:i + 1]
-        if np.isnan(window).any():
-            out.append(None)
-            continue
-        price_rank = window.argsort().argsort()  # 同じ値の順位は気にしない（終値がぴったり並ぶことはまれ）
-        d = np.arange(n) - price_rank
-        out.append(round(float((1 - 6 * (d ** 2).sum() / (n * (n * n - 1))) * 100), 1))
-    return out
 
 
 def _frame(daily, cut, end, spec):
@@ -79,7 +60,6 @@ def _frame(daily, cut, end, spec):
         "n": n_before,  # 問題に出す本数。残りが答え
         **{k: [_round(v) for v in part[k]] for k in AGG},
         "ma": {str(n): [_round(v) for v in mas[n].loc[part.index]] for n in spec["ma"]},
-        "rci": {str(n): _rci(close.to_numpy(dtype=float), bars.index.get_loc(first), n)[:len(part)] for n in RCI},
     }
 
 
