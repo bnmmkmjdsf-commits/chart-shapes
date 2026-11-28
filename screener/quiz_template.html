@@ -132,6 +132,28 @@ async function pick() {
   throw new Error("問題を読めませんでした。少し待ってから開き直してください");
 }
 
+// 価格帯別出来高: 問題の期間（答えの前まで）に、どの値段でどれだけ売り買いされたか。左から横棒で出す。
+// 足ごとの出来高を、その足の安値〜高値の間に均等に配る（日中のどこで売買されたかまでは分からないため）。一番多い値段は濃く
+function profile(f, vol, lo, hi, y, W, L, R) {
+  const bins = 30, size = (hi - lo) / bins, sum = new Array(bins).fill(0);
+  for (let i = 0; i < f.n; i++) {
+    const v = vol[i], a = Math.log(f.low[i]), b = Math.log(f.high[i]);
+    if (!(v > 0) || !(a <= b)) continue;
+    if (b - a < 1e-9) { sum[Math.min(bins - 1, Math.max(0, Math.floor((a - lo) / size)))] += v; continue; }
+    for (let k = Math.max(0, Math.floor((a - lo) / size)); k < bins && lo + k * size < b; k++) {
+      const overlap = Math.min(b, lo + (k + 1) * size) - Math.max(a, lo + k * size);
+      if (overlap > 0) sum[k] += v * overlap / (b - a);
+    }
+  }
+  const top = Math.max(...sum), most = sum.indexOf(top), width = (W - L - R) * 0.25;
+  if (!(top > 0)) return "";
+  return sum.map((v, k) => {
+    if (!(v > 0)) return "";
+    const y1 = y(Math.exp(lo + (k + 1) * size)), y2 = y(Math.exp(lo + k * size));
+    return `<rect x="${L}" y="${y1 + 0.5}" width="${width * v / top}" height="${Math.max(0.5, y2 - y1 - 1)}" fill="var(--fg)" opacity="${k === most ? 0.28 : 0.12}"/>`;
+  }).join("");
+}
+
 // ローソク足と出来高。答える前は右の4分の1を「？」の場所にし、答えた後は答えの1年まで全部を並べる。値は対数の目盛り
 function draw() {
   const q = now, f = q.frames[frame], reveal = revealed;
@@ -152,6 +174,7 @@ function draw() {
   const cutX = L + step * f.n;
   svg += `<rect x="${cutX}" y="${T}" width="${W - R - cutX}" height="${H - T - B}" fill="var(--shade)"/>`;
   if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${PH / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
+  if (vol) svg += profile(f, vol, lo, hi, y, W, L, R);
   const bw = Math.max(1, step * 0.7);
   for (let i = 0; i < shown; i++) {
     const o = f.open[i], c = f.close[i], h = f.high[i], l = f.low[i];
@@ -177,7 +200,7 @@ function draw() {
     svg += `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${q.end}</text>`;
   }
   document.getElementById("chart").innerHTML = svg + "</svg>";
-  document.getElementById("legend").innerHTML = vol ? "<span>下の棒: 出来高</span>" : "";
+  document.getElementById("legend").innerHTML = vol ? "<span>下の棒: 出来高</span><span>左の横棒: 価格帯別出来高（問題の期間）</span>" : "";
   document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-selected", b.dataset.frame === frame));
   document.getElementById("question").textContent = reveal ? `${LABEL[q.market]}・答え（色の付いた所が、その後の1年）`
     : `${LABEL[q.market]}・${FRAME[frame].label} ${f.n}本。この後の1年は？`;
