@@ -1,7 +1,7 @@
 """チャート当てクイズの問題を作る（site/quiz/市場/番号.json と site/quiz/市場/index.json）。
 
 売買代金が足りる銘柄（s/市場/_liquid.json）から COUNT 銘柄をでたらめに選び、日足を長く取って、
-銘柄ごとにでたらめな日（答えの1年が終わっている日）で切る。問題には、その日までの日足・週足・月足のローソク足と出来高、
+銘柄ごとにでたらめな日（答えの1年が終わっている日）で切る。問題には、その日までの日足・週足・月足のローソク足と移動平均・出来高、
 答えには、その後1年の足を入れる。答えは「切った日の終値」と「1年後の終値」のどちらが高いか。
 
 株価を取り直すたびに、取り直した市場の問題を作り直す（毎回ちがう問題になる）。
@@ -20,11 +20,11 @@ from screener import prices
 ROOT = Path(__file__).resolve().parent.parent
 COUNT = 120                         # 市場ごとの問題数
 AHEAD_DAYS = 365                    # 答えの長さ（日）
-# 足の種類ごとの、問題に出す本数（最大・最小）
+# 足の種類ごとの、問題に出す本数（最大・最小）と移動平均
 FRAMES = {
-    "d": {"rule": None, "show": 120, "min": 60},
-    "w": {"rule": "W-MON", "show": 104, "min": 52},
-    "m": {"rule": "MS", "show": 60, "min": 24},
+    "d": {"rule": None, "show": 120, "min": 60, "ma": (5, 25, 75)},
+    "w": {"rule": "W-MON", "show": 104, "min": 52, "ma": (13, 26, 52)},
+    "m": {"rule": "MS", "show": 60, "min": 24, "ma": (12, 24, 60)},
 }
 AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 MAX_JUMP = 3.0  # 1日で3倍・3分の1の動きがある銘柄は、データの誤り（株式分割など）かもしれないので使わない
@@ -45,6 +45,8 @@ def _resample(daily, rule):
 def _frame(daily, cut, end, spec):
     """1つの足の種類の、問題（cut まで）と答え（end まで）の足。足りなければ None"""
     bars = _resample(daily, spec["rule"])
+    close = bars["close"]
+    mas = {n: close.rolling(n).mean() for n in spec["ma"]}
     before = bars.index[bars.index <= cut]
     if len(before) < spec["min"]:
         return None
@@ -57,6 +59,7 @@ def _frame(daily, cut, end, spec):
         "from": first.strftime("%Y-%m-%d"),
         "n": n_before,  # 問題に出す本数。残りが答え
         **{k: [_round(v) for v in part[k]] for k in AGG},
+        "ma": {str(n): [_round(v) for v in mas[n].loc[part.index]] for n in spec["ma"]},
     }
 
 
