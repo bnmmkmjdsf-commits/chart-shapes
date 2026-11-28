@@ -136,7 +136,9 @@ async function pick() {
 function draw() {
   const q = now, f = q.frames[frame], reveal = revealed;
   const narrow = (document.getElementById("chart").clientWidth || 700) < 520;  // スマホは縦長に
-  const W = narrow ? 420 : 700, H = 320, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const vol = f.volume && f.volume.some(v => v > 0) ? f.volume : null;  // 前に作った問題には出来高が無い
+  const W = narrow ? 420 : 700, PH = 320, VH = vol ? 70 : 0, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const H = PH + VH;
   const total = f.close.length, shown = reveal ? total : f.n;
   const step = (W - L - R) / (reveal ? total : f.n / 0.75);
   const x = i => L + step * (i + 0.5);
@@ -146,11 +148,11 @@ function draw() {
     for (const k of FRAME[frame].ma) if (f.ma[k][i]) vals.push(f.ma[k][i]);
   }
   const good = vals.filter(v => v > 0), lo = Math.log(Math.min(...good)), hi = Math.log(Math.max(...good));
-  const y = v => T + (H - T - B) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
+  const y = v => T + (PH - T - (vol ? 6 : B)) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="問題のチャート">`;
   const cutX = L + step * f.n;
   svg += `<rect x="${cutX}" y="${T}" width="${W - R - cutX}" height="${H - T - B}" fill="var(--shade)"/>`;
-  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${(H - B) / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
+  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${PH / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
   const bw = Math.max(1, step * 0.7);
   for (let i = 0; i < shown; i++) {
     const o = f.open[i], c = f.close[i], h = f.high[i], l = f.low[i];
@@ -165,6 +167,16 @@ function draw() {
     for (let i = 0; i < shown; i++) { const v = f.ma[k][i]; if (v > 0) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }
     svg += `<path d="${d}" fill="none" stroke="var(--ma${n + 1})" stroke-width="1.4"/>`;
   });
+  if (vol) {
+    // 出来高。見えている足の中で一番多い日を枠いっぱいにする
+    const top = Math.max(...vol.slice(0, shown).filter(v => v > 0)), base = H - B;
+    svg += `<line x1="${L}" x2="${W - R}" y1="${PH}" y2="${PH}" stroke="var(--line)"/>`;
+    for (let i = 0; i < shown; i++) {
+      const v = vol[i]; if (!(v > 0)) continue;
+      const h = (VH - 8) * v / top;
+      svg += `<rect x="${x(i) - bw / 2}" y="${base - h}" width="${bw}" height="${h}" fill="${f.close[i] >= f.open[i] ? "var(--up)" : "var(--down)"}" opacity="0.45"/>`;
+    }
+  }
   if (reveal) {
     svg += `<text class="axis" x="${L}" y="${H - 6}">${f.from}</text>`;
     svg += `<text class="axis" x="${cutX}" y="${H - 6}" text-anchor="middle">${q.cut}</text>`;
@@ -172,7 +184,7 @@ function draw() {
   }
   document.getElementById("chart").innerHTML = svg + "</svg>";
   document.getElementById("legend").innerHTML = FRAME[frame].ma.map((k, n) =>
-    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("");
+    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("") + (vol ? "<span>下の棒: 出来高</span>" : "");
   document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-selected", b.dataset.frame === frame));
   document.getElementById("question").textContent = reveal ? `${LABEL[q.market]}・答え（色の付いた所が、その後の1年）`
     : `${LABEL[q.market]}・${FRAME[frame].label} ${f.n}本。この後の1年は？`;
