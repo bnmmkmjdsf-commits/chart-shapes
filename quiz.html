@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>チャート当てクイズ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+/* 見出し → ページの行き来 → 市場の切り替えと成績 → 問題のチャート → 上がる・下がるのボタン → 答え */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --ma1: #b88700; --ma2: #e0662f; --ma3: #1f8a8a; --shade: rgba(33, 96, 208, 0.07);
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --ma1: #e6c34a; --ma2: #f08a5d; --ma3: #5cc1c1; --shade: rgba(107, 159, 255, 0.10); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0; }
+a { color: var(--accent); }
+.sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0 0; }
+.nav a { text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin: 12px 0; }
+.market { display: flex; gap: 6px; }
+.market button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.score { font-size: 14px; color: var(--muted); }
+.score b { color: var(--fg); font-family: var(--font-num); }
+.frames { display: flex; gap: 6px; margin: 0 0 6px; }
+.frames button { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.frames button[aria-selected="true"] { background: var(--fg); color: var(--surface); border-color: var(--fg); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.q { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; gap: 0 14px; font-size: 12px; color: var(--muted); margin: 4px 0 0; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.axis { fill: var(--muted); font-size: 12px; font-family: var(--font-num); }
+.answers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.answers button, .next { font: inherit; font-size: 17px; font-weight: 600; padding: 14px; border-radius: 10px; cursor: pointer; border: 2px solid; background: var(--surface); }
+.answers .up { color: var(--up); border-color: var(--up); }
+.answers .down { color: var(--down); border-color: var(--down); }
+.answers button:disabled { opacity: 0.35; cursor: default; }
+.next { width: 100%; margin-top: 12px; color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.result { margin-top: 12px; }
+.result .verdict { font-size: 20px; font-weight: 700; margin: 0; }
+.result p { margin: 4px 0 0; }
+.num { font-family: var(--font-num); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.muted { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>チャート当てクイズ</h1>
+  <p class="sub">名前を隠したチャート（日足・週足・月足）。この後の1年、株価は上がった？下がった？</p>
+  <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html">ポートフォリオ</a><a href="quiz.html" aria-current="page">チャート当てクイズ</a><a href="shape.html">次のモデルナ探し</a></nav>
+
+  <div class="bar">
+    <div class="market" role="tablist" aria-label="市場">
+      <button type="button" role="tab" data-market="all" aria-selected="true">日米</button>
+      <button type="button" role="tab" data-market="jp" aria-selected="false">日本株</button>
+      <button type="button" role="tab" data-market="us" aria-selected="false">米国株</button>
+    </div>
+    <div class="score" id="score"></div>
+  </div>
+
+  <section class="card">
+    <p class="q" id="question">問題を読んでいます...</p>
+    <div class="frames" role="tablist" aria-label="足の種類">
+      <button type="button" role="tab" data-frame="d" aria-selected="false">日足</button>
+      <button type="button" role="tab" data-frame="w" aria-selected="true">週足</button>
+      <button type="button" role="tab" data-frame="m" aria-selected="false">月足</button>
+    </div>
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+    <div class="answers">
+      <button type="button" class="up" data-guess="up" disabled>上がる ↑</button>
+      <button type="button" class="down" data-guess="down" disabled>下がる ↓</button>
+    </div>
+    <div class="result" id="result" hidden></div>
+    <button type="button" class="next" id="next" hidden>次の問題 →</button>
+  </section>
+  <p class="muted">売買の多い銘柄（日本株の1日の売買代金5億円以上・米国株2000万ドル以上）から、銘柄と時期をでたらめに選んでいます。問題は株価の更新のたびに入れ替わります。成績はこの端末だけに残ります。</p>
+</main>
+<script>
+const LABEL = {jp: "日本株", us: "米国株"};
+const FRAME = {d: {label: "日足", unit: "日", ma: ["5", "25", "75"]}, w: {label: "週足", unit: "週", ma: ["13", "26", "52"]}, m: {label: "月足", unit: "か月", ma: ["12", "24", "60"]}};
+const KEY = "quiz-score-v1";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+let market = "all", frame = "w", counts = {}, now = null, revealed = false;
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {n: 0, ok: 0, streak: 0, best: 0}; } catch { return {n: 0, ok: 0, streak: 0, best: 0}; } }
+function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {} }
+function showScore() {
+  const s = load();
+  document.getElementById("score").innerHTML = s.n
+    ? `正解 <b>${s.ok}</b> / ${s.n}（<b>${Math.round(100 * s.ok / s.n)}%</b>）・連続 <b>${s.streak}</b>・最高 <b>${s.best}</b>`
+    : "まだ0問";
+}
+
+async function count(m) {
+  if (counts[m] === undefined) {
+    try { counts[m] = (await (await fetch(`quiz/${m}/index.json`)).json()).count; } catch { counts[m] = 0; }
+  }
+  return counts[m];
+}
+
+// 問題はページを作るときに市場ごとにまとめて作ってある（screener/quiz.py）。その中からでたらめに選ぶ
+async function pick() {
+  const markets = market === "all" ? ["jp", "us"] : [market];
+  for (let tries = 0; tries < 10; tries++) {
+    const m = markets[Math.floor(Math.random() * markets.length)];
+    const n = await count(m);
+    if (!n) continue;
+    try { return await (await fetch(`quiz/${m}/${Math.floor(Math.random() * n)}.json`)).json(); } catch {}
+  }
+  throw new Error("問題を読めませんでした。少し待ってから開き直してください");
+}
+
+// 価格帯別出来高: 問題の期間（答えの前まで）に、どの値段でどれだけ売り買いされたか。左から横棒で出す。
+// 足ごとの出来高を、その足の安値〜高値の間に均等に配る（日中のどこで売買されたかまでは分からないため）。一番多い値段は濃く
+function profile(f, vol, lo, hi, y, W, L, R) {
+  const bins = 30, size = (hi - lo) / bins, sum = new Array(bins).fill(0);
+  for (let i = 0; i < f.n; i++) {
+    const v = vol[i], a = Math.log(f.low[i]), b = Math.log(f.high[i]);
+    if (!(v > 0) || !(a <= b)) continue;
+    if (b - a < 1e-9) { sum[Math.min(bins - 1, Math.max(0, Math.floor((a - lo) / size)))] += v; continue; }
+    for (let k = Math.max(0, Math.floor((a - lo) / size)); k < bins && lo + k * size < b; k++) {
+      const overlap = Math.min(b, lo + (k + 1) * size) - Math.max(a, lo + k * size);
+      if (overlap > 0) sum[k] += v * overlap / (b - a);
+    }
+  }
+  const top = Math.max(...sum), most = sum.indexOf(top), width = (W - L - R) * 0.25;
+  if (!(top > 0)) return "";
+  return sum.map((v, k) => {
+    if (!(v > 0)) return "";
+    const y1 = y(Math.exp(lo + (k + 1) * size)), y2 = y(Math.exp(lo + k * size));
+    return `<rect x="${L}" y="${y1 + 0.5}" width="${width * v / top}" height="${Math.max(0.5, y2 - y1 - 1)}" fill="var(--fg)" opacity="${k === most ? 0.28 : 0.12}"/>`;
+  }).join("");
+}
+
+// ローソク足と移動平均・出来高。答える前は右の4分の1を「？」の場所にし、答えた後は答えの1年まで全部を並べる。値は対数の目盛り
+function draw() {
+  const q = now, f = q.frames[frame], reveal = revealed;
+  const narrow = (document.getElementById("chart").clientWidth || 700) < 520;  // スマホは縦長に
+  const vol = f.volume && f.volume.some(v => v > 0) ? f.volume : null;  // 前に作った問題には出来高が無い
+  const W = narrow ? 420 : 700, PH = 320, VH = vol ? 70 : 0, L = 6, R = 6, T = 10, B = reveal ? 26 : 8;
+  const H = PH + VH;
+  const total = f.close.length, shown = reveal ? total : f.n;
+  const step = (W - L - R) / (reveal ? total : f.n / 0.75);
+  const x = i => L + step * (i + 0.5);
+  const vals = [];
+  for (let i = 0; i < shown; i++) {
+    vals.push(f.high[i], f.low[i]);
+    for (const k of FRAME[frame].ma) if (f.ma && f.ma[k] && f.ma[k][i]) vals.push(f.ma[k][i]);
+  }
+  const good = vals.filter(v => v > 0), lo = Math.log(Math.min(...good)), hi = Math.log(Math.max(...good));
+  const y = v => T + (PH - T - (vol ? 6 : B)) * (1 - (Math.log(v) - lo) / (hi - lo || 1));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="問題のチャート">`;
+  const cutX = L + step * f.n;
+  svg += `<rect x="${cutX}" y="${T}" width="${W - R - cutX}" height="${H - T - B}" fill="var(--shade)"/>`;
+  if (!reveal) svg += `<text class="axis" x="${(cutX + W - R) / 2}" y="${PH / 2}" text-anchor="middle" style="font-size:28px">？</text>`;
+  if (vol) svg += profile(f, vol, lo, hi, y, W, L, R);
+  const bw = Math.max(1, step * 0.7);
+  for (let i = 0; i < shown; i++) {
+    const o = f.open[i], c = f.close[i], h = f.high[i], l = f.low[i];
+    if (!(o > 0 && c > 0 && h > 0 && l > 0)) continue;
+    const color = c >= o ? "var(--up)" : "var(--down)";
+    svg += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(h)}" y2="${y(l)}" stroke="${color}" stroke-width="1"/>`;
+    const top = y(Math.max(o, c)), bottom = y(Math.min(o, c));
+    svg += `<rect x="${x(i) - bw / 2}" y="${top}" width="${bw}" height="${Math.max(1, bottom - top)}" fill="${color}"/>`;
+  }
+  FRAME[frame].ma.forEach((k, n) => {
+    let d = "";
+    if (!f.ma || !f.ma[k]) return;  // 移動平均の無い問題（2026-11-28 に一時作った分）
+    for (let i = 0; i < shown; i++) { const v = f.ma[k][i]; if (v > 0) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; }
+    svg += `<path d="${d}" fill="none" stroke="var(--ma${n + 1})" stroke-width="1.4"/>`;
+  });
+  if (vol) {
+    // 出来高。見えている足の中で一番多い日を枠いっぱいにする
+    const top = Math.max(...vol.slice(0, shown).filter(v => v > 0)), base = H - B;
+    svg += `<line x1="${L}" x2="${W - R}" y1="${PH}" y2="${PH}" stroke="var(--line)"/>`;
+    for (let i = 0; i < shown; i++) {
+      const v = vol[i]; if (!(v > 0)) continue;
+      const h = (VH - 8) * v / top;
+      svg += `<rect x="${x(i) - bw / 2}" y="${base - h}" width="${bw}" height="${h}" fill="${f.close[i] >= f.open[i] ? "var(--up)" : "var(--down)"}" opacity="0.45"/>`;
+    }
+  }
+  if (reveal) {
+    svg += `<text class="axis" x="${L}" y="${H - 6}">${f.from}</text>`;
+    svg += `<text class="axis" x="${cutX}" y="${H - 6}" text-anchor="middle">${q.cut}</text>`;
+    svg += `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${q.end}</text>`;
+  }
+  document.getElementById("chart").innerHTML = svg + "</svg>";
+  document.getElementById("legend").innerHTML = (f.ma ? FRAME[frame].ma : []).map((k, n) =>
+    `<span><i style="border-color:var(--ma${n + 1})"></i>${k}${FRAME[frame].unit}線</span>`).join("") +
+    (vol ? "<span>下の棒: 出来高</span><span>左の横棒: 価格帯別出来高（問題の期間）</span>" : "");
+  document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-selected", b.dataset.frame === frame));
+  document.getElementById("question").textContent = reveal ? `${LABEL[q.market]}・答え（色の付いた所が、その後の1年）`
+    : `${LABEL[q.market]}・${FRAME[frame].label} ${f.n}本。この後の1年は？`;
+}
+
+async function next() {
+  revealed = false;
+  document.getElementById("result").hidden = true;
+  document.getElementById("next").hidden = true;
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
+  document.getElementById("question").textContent = "問題を読んでいます...";
+  try { now = await pick(); } catch (e) { document.getElementById("question").textContent = e.message; return; }
+  draw();
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = false);
+}
+
+function answer(guess) {
+  const q = now; if (!q || revealed) return;
+  document.querySelectorAll("[data-guess]").forEach(b => b.disabled = true);
+  const ok = (q.change >= 0) === (guess === "up");
+  const s = load();
+  s.n++; if (ok) { s.ok++; s.streak++; s.best = Math.max(s.best, s.streak); } else s.streak = 0;
+  save(s); showScore();
+  revealed = true;
+  draw();
+  const link = q.market === "jp" ? `https://kabutan.jp/stock/chart?code=${q.code}` : `https://us.kabutan.jp/stocks/${q.code}/chart`;
+  const el = document.getElementById("result");
+  el.innerHTML = `<p class="verdict ${ok ? "pos" : "neg"}">${ok ? "正解！" : "はずれ…"}</p>
+    <p><a href="${link}" target="_blank" rel="noopener">${esc(q.code)}</a> ${esc(q.name)}<span class="muted">（${esc(q.sector || LABEL[q.market])}）</span></p>
+    <p>${q.cut} → ${q.end} の1年で <b class="num ${q.change >= 0 ? "pos" : "neg"}">${q.change >= 0 ? "+" : ""}${Math.round(q.change * 100)}%</b></p>`;
+  el.hidden = false;
+  document.getElementById("next").hidden = false;
+}
+
+document.querySelectorAll("[data-guess]").forEach(b => b.addEventListener("click", () => answer(b.dataset.guess)));
+document.querySelectorAll("[data-frame]").forEach(b => b.addEventListener("click", () => { frame = b.dataset.frame; if (now) draw(); }));
+document.getElementById("next").addEventListener("click", next);
+document.querySelectorAll("[data-market]").forEach(b => b.addEventListener("click", () => {
+  market = b.dataset.market;
+  document.querySelectorAll("[data-market]").forEach(x => x.setAttribute("aria-selected", x === b));
+  next();
+}));
+showScore();
+next();
+</script>
+</body>
+</html>

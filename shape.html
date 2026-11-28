@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>次のモデルナ探し</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+JP:wght@400;600&display=swap">
+<style>
+/* 見出し → ページの行き来 → 日本株・米国株の切り替え → 当たるの？ → 似ている銘柄のカード（形を重ねた小さなグラフ） */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --line: #d8deea; --fg: #15213a; --muted: #5b6880;
+  --accent: #2160d0; --on-accent: #ffffff; --up: #d93f45; --down: #2a6fdb; --model: #8a94a8;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+    --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --model: #7d879c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1324; --surface: #131c31; --line: #26324c; --fg: #e6ebf5; --muted: #8f9bb2;
+  --accent: #6b9fff; --on-accent: #0c1324; --up: #f0656a; --down: #5b9bff; --model: #7d879c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+a { color: var(--accent); }
+.sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0 0; }
+.nav a { text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+.market { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.market button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 8px 14px; font: inherit; cursor: pointer; }
+.market button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+.num { font-family: var(--font-num); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 8px 0; }
+.fact { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.fact b { font-family: var(--font-num); font-size: 20px; display: block; }
+.fact span { color: var(--muted); font-size: 12px; }
+.note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.pick { margin: 0; }
+.pick h3 { font-size: 15px; margin: 0; display: flex; justify-content: space-between; gap: 8px; }
+.pick h3 .num { color: var(--muted); font-size: 13px; font-weight: 400; white-space: nowrap; }
+.pick .meta { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+.pick svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; gap: 0 14px; font-size: 12px; color: var(--muted); margin: 4px 0 0; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.model { font-size: 13px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>次のモデルナ探し</h1>
+  <p class="sub" id="sub"></p>
+  <nav class="nav"><a href="./">業績・持ち株</a><a href="portfolio.html">ポートフォリオ</a><a href="quiz.html">チャート当てクイズ</a><a href="shape.html" aria-current="page">次のモデルナ探し</a></nav>
+
+  <div class="market" role="tablist" aria-label="市場">
+    <button type="button" role="tab" data-market="us" aria-selected="true">米国株</button>
+    <button type="button" role="tab" data-market="jp" aria-selected="false">日本株</button>
+  </div>
+
+  <section class="card">
+    <h2>当たるの？</h2>
+    <p id="how" class="note" style="margin:0"></p>
+    <div class="facts" id="facts"></div>
+    <p class="note" id="verdict"></p>
+  </section>
+
+  <div class="grid" id="picks"></div>
+</main>
+<script>
+const DATA = {"built": "2026-11-28", "shape": 12, "ahead": 12, "surge": 3.0, "markets": {"jp": {"picks": [{"code": "2810", "name": "ハウス食品グループ本社", "sim": 0.98, "price": 4650.0, "rise": 0.6107, "shape": [-1.031, -0.944, -1.051, -0.796, -0.598, -0.678, -0.772, 0.06, 0.656, 0.87, 1.079, 1.151, 2.053], "from": "2025-10", "to": "2026-10", "model": {"code": "3399", "name": "丸千代山岡家", "times": 5.38, "from": "2022-03", "start": "2023-03", "end": "2024-03", "shape": [-1.02, -0.96, -0.885, -0.726, -0.755, -0.675, -0.574, -0.292, 0.421, 1.32, 0.907, 1.235, 2.005]}}, {"code": "8876", "name": "リログループ", "sim": 0.976, "price": 2444.0, "rise": 0.4741, "shape": [-1.391, -1.093, -1.087, -0.904, -0.067, -0.234, 0.078, -0.461, 0.248, 0.328, 1.148, 1.397, 2.038], "from": "2025-10", "to": "2026-10", "model": {"code": "8393", "name": "宮崎銀行", "times": 3.28, "from": "2024-09", "start": "2025-09", "end": "2026-09", "shape": [-1.462, -1.473, -0.78, -0.488, -0.179, -0.188, -0.141, -0.468, 0.106, 0.515, 1.063, 1.63, 1.865]}}, {"code": "8267", "name": "イオン", "sim": 0.973, "price": 1200.0, "rise": -0.5082, "shape": [1.205, 1.72, 1.258, 0.706, 0.885, 0.302, -0.47, -0.754, -0.885, -0.825, -0.846, -1.023, -1.273], "from": "2025-10", "to": "2026-10", "model": {"code": "4784", "name": "GMOインターネット", "times": 9.08, "from": "2023-05", "start": "2024-05", "end": "2025-05", "shape": [1.271, 1.222, 1.173, 0.976, 0.876, 0.698, -0.127, -0.964, -0.815, -0.934, -1.024, -1.115, -1.238]}}, {"code": "8366", "name": "滋賀銀行", "sim": 0.972, "price": 2484.0, "rise": 0.9936, "shape": [-1.644, -1.33, -1.135, -0.797, -0.309, -0.202, -0.085, 0.056, 0.999, 0.706, 1.318, 1.594, 0.829], "from": "2025-10", "to": "2026-10", "model": {"code": "4107", "name": "伊勢化学工業", "times": 3.78, "from": "2022-06", "start": "2023-06", "end": "2024-06", "shape": [-1.347, -1.242, -1.171, -0.977, -0.311, -0.187, -0.216, -0.356, 0.983, 1.031, 0.957, 1.574, 1.26]}}, {"code": "4746", "name": "東計電算", "sim": 0.97, "price": 1959.0, "rise": 1.0432, "shape": [-0.978, -0.612, -0.771, -0.601, -0.397, -0.612, -0.503, -0.511, -0.416, 0.096, 1.502, 1.928, 1.874], "from": "2025-10", "to": "2026-10", "model": {"code": "8392", "name": "大分銀行", "times": 3.19, "from": "2024-09", "start": "2025-09", "end": "2026-09", "shape": [-0.914, -0.817, -1.003, -0.826, -0.765, -0.528, -0.254, -0.374, -0.046, 0.522, 1.46, 1.624, 1.922]}}, {"code": "7846", "name": "パイロットコーポレーション", "sim": 0.969, "price": 2144.0, "rise": 0.3806, "shape": [-0.975, -0.531, -0.585, -0.612, -0.569, -0.925, -0.731, -0.399, -0.237, 0.381, 1.684, 1.659, 1.84], "from": "2025-10", "to": "2026-10", "model": {"code": "9412", "name": "スカパーJSAT", "times": 3.55, "from": "2024-05", "start": "2025-05", "end": "2026-05", "shape": [-0.403, -0.825, -0.629, -0.916, -0.611, -0.691, -0.861, -0.463, -0.233, 0.609, 1.539, 1.383, 2.1]}}, {"code": "3038", "name": "神戸物産", "sim": 0.969, "price": 2933.0, "rise": -0.18, "shape": [0.829, 1.233, 1.229, 1.257, 1.074, 0.586, -1.168, -1.09, -1.269, -0.989, -0.808, -0.339, -0.546], "from": "2025-10", "to": "2026-10", "model": {"code": "8550", "name": "栃木銀行", "times": 3.68, "from": "2024-02", "start": "2025-02", "end": "2026-02", "shape": [0.565, 1.1, 0.907, 1.507, 1.176, 0.965, -0.669, -1.205, -1.258, -1.074, -0.669, -0.476, -0.869]}}, {"code": "8362", "name": "福井銀行", "sim": 0.967, "price": 7200.0, "rise": 2.3119, "shape": [-1.491, -1.254, -1.082, -0.808, -0.361, -0.593, -0.22, 0.251, 0.677, 0.748, 1.236, 1.596, 1.301], "from": "2025-10", "to": "2026-10", "model": {"code": "4107", "name": "伊勢化学工業", "times": 3.78, "from": "2022-06", "start": "2023-06", "end": "2024-06", "shape": [-1.347, -1.242, -1.171, -0.977, -0.311, -0.187, -0.216, -0.356, 0.983, 1.031, 0.957, 1.574, 1.26]}}, {"code": "4887", "name": "サワイグループホールディングス", "sim": 0.966, "price": 1666.0, "rise": -0.0946, "shape": [-0.272, 0.233, 1.416, 1.448, 1.306, 0.973, 0.639, -0.616, -0.869, -1.012, -1.229, -1.07, -0.946], "from": "2025-10", "to": "2026-10", "model": {"code": "3103", "name": "ユニチカ", "times": 15.53, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [-0.127, 0.356, 1.231, 0.917, 1.4, 1.133, 0.949, -0.344, -1.314, -1.249, -1.123, -0.828, -1.002]}}, {"code": "6376", "name": "日機装", "sim": 0.965, "price": 3010.0, "rise": 0.9921, "shape": [-1.534, -1.39, -1.39, -1.061, -0.132, -0.095, 0.102, 0.553, 1.322, 1.099, 1.111, 0.953, 0.462], "from": "2025-10", "to": "2026-10", "model": {"code": "5803", "name": "フジクラ", "times": 6.83, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [-1.749, -1.183, -1.233, -1.361, -0.28, 0.18, 0.769, 0.517, 1.219, 1.083, 1.001, 0.566, 0.469]}}, {"code": "8766", "name": "東京海上ホールディングス", "sim": 0.963, "price": 579.4, "rise": 0.503, "shape": [-1.229, -1.563, -1.188, -1.296, -0.394, 0.387, 0.286, 0.199, 0.286, 1.109, 0.754, 1.066, 1.584], "from": "2025-10", "to": "2026-10", "model": {"code": "8344", "name": "山形銀行", "times": 3.38, "from": "2024-09", "start": "2025-09", "end": "2026-09", "shape": [-1.12, -1.313, -1.409, -1.164, -0.958, 0.37, 0.511, 0.038, 0.803, 0.8, 0.91, 1.123, 1.411]}}, {"code": "2726", "name": "パルグループホールディングス", "sim": 0.962, "price": 1500.0, "rise": -0.2432, "shape": [1.416, 2.077, 1.603, 0.213, 0.155, -0.768, -0.532, -1.093, -0.658, -0.55, -0.481, -0.855, -0.527], "from": "2025-10", "to": "2026-10", "model": {"code": "6976", "name": "太陽誘電", "times": 7.95, "from": "2024-06", "start": "2025-06", "end": "2026-06", "shape": [1.695, 2.142, 1.161, 0.283, 0.019, -1.032, -0.767, -0.915, -0.403, -0.417, -0.979, -0.484, -0.303]}}, {"code": "2175", "name": "エス・エム・エス", "sim": 0.962, "price": 2588.0, "rise": 0.9444, "shape": [-1.434, -1.304, -1.374, -0.575, -0.278, -0.552, -0.218, 0.26, 0.736, 0.685, 1.212, 1.49, 1.352], "from": "2025-10", "to": "2026-10", "model": {"code": "4107", "name": "伊勢化学工業", "times": 3.78, "from": "2022-06", "start": "2023-06", "end": "2024-06", "shape": [-1.347, -1.242, -1.171, -0.977, -0.311, -0.187, -0.216, -0.356, 0.983, 1.031, 0.957, 1.574, 1.26]}}, {"code": "5333", "name": "NGK", "sim": 0.961, "price": 4613.0, "rise": 0.7701, "shape": [-1.898, -1.318, -1.028, -0.695, 0.059, -0.435, 0.33, 1.165, 1.775, 0.745, 0.573, 0.649, 0.078], "from": "2025-10", "to": "2026-10", "model": {"code": "6834", "name": "精工技研", "times": 8.64, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [-1.867, -1.171, -0.726, -0.712, -0.594, -0.355, 0.168, 1.129, 1.696, 1.189, 0.94, 0.378, -0.076]}}, {"code": "8344", "name": "山形銀行", "sim": 0.961, "price": 4625.0, "rise": 1.7546, "shape": [-1.483, -1.198, -1.102, -0.746, -0.175, -0.563, -0.372, 0.163, 0.513, 0.672, 1.221, 1.825, 1.244], "from": "2025-10", "to": "2026-10", "model": {"code": "4107", "name": "伊勢化学工業", "times": 3.78, "from": "2022-06", "start": "2023-06", "end": "2024-06", "shape": [-1.347, -1.242, -1.171, -0.977, -0.311, -0.187, -0.216, -0.356, 0.983, 1.031, 0.957, 1.574, 1.26]}}, {"code": "8387", "name": "四国銀行", "sim": 0.961, "price": 3920.0, "rise": 1.6942, "shape": [-1.683, -1.289, -1.13, -0.701, -0.155, -0.414, -0.031, 0.178, 0.439, 0.739, 1.036, 1.794, 1.217], "from": "2025-10", "to": "2026-10", "model": {"code": "4107", "name": "伊勢化学工業", "times": 3.78, "from": "2022-06", "start": "2023-06", "end": "2024-06", "shape": [-1.347, -1.242, -1.171, -0.977, -0.311, -0.187, -0.216, -0.356, 0.983, 1.031, 0.957, 1.574, 1.26]}}, {"code": "9107", "name": "川崎汽船", "sim": 0.96, "price": 3520.0, "rise": 0.5906, "shape": [-1.002, -1.381, -1.089, -0.958, -0.235, 0.061, -0.118, -0.218, -0.302, 0.525, 1.464, 1.456, 1.798], "from": "2025-10", "to": "2026-10", "model": {"code": "8393", "name": "宮崎銀行", "times": 3.28, "from": "2024-09", "start": "2025-09", "end": "2026-09", "shape": [-1.462, -1.473, -0.78, -0.488, -0.179, -0.188, -0.141, -0.468, 0.106, 0.515, 1.063, 1.63, 1.865]}}, {"code": "2267", "name": "ヤクルト本社", "sim": 0.96, "price": 2787.0, "rise": 0.2096, "shape": [-2.151, -1.203, -1.176, -0.89, -0.122, 0.158, 0.588, 0.291, 0.67, 1.092, 1.177, 0.658, 0.908], "from": "2025-10", "to": "2026-10", "model": {"code": "5803", "name": "フジクラ", "times": 6.83, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [-1.749, -1.183, -1.233, -1.361, -0.28, 0.18, 0.769, 0.517, 1.219, 1.083, 1.001, 0.566, 0.469]}}, {"code": "2264", "name": "森永乳業", "sim": 0.96, "price": 1092.0, "rise": 0.3149, "shape": [-2.166, -1.205, -1.26, -0.733, 1.013, 0.693, 0.66, 0.858, 1.19, 0.693, 0.381, -0.127, 0.005], "from": "2025-10", "to": "2026-10", "model": {"code": "7003", "name": "三井E&S", "times": 5.57, "from": "2023-10", "start": "2024-10", "end": "2025-10", "shape": [-2.126, -1.525, -0.959, -0.792, 1.111, 1.168, 0.954, 0.622, 0.602, 0.421, 0.407, 0.057, 0.061]}}, {"code": "6779", "name": "日本電波工業", "sim": 0.96, "price": 2477.0, "rise": 1.194, "shape": [-0.966, -1.29, -1.171, -1.175, -0.623, -0.891, 0.094, 1.175, 1.318, 0.724, 0.887, 1.267, 0.651], "from": "2025-10", "to": "2026-10", "model": {"code": "1518", "name": "三井松島ホールディングス", "times": 3.26, "from": "2020-07", "start": "2021-07", "end": "2022-07", "shape": [-1.032, -0.831, -0.804, -1.346, -0.795, -1.004, -0.523, 1.213, 1.18, 0.762, 0.867, 1.2, 1.113]}}], "check": {"months": 62, "double": 0.054, "double_all": 0.0506, "half": 0.0137, "half_all": 0.0077, "median": 0.1107, "median_all": 0.1255}, "models": 143, "universe": 840}, "us": {"picks": [{"code": "TU", "name": "TELUS Corporation", "sim": 0.991, "price": 8.87, "rise": -0.395, "shape": [1.275, 0.675, 0.684, 1.005, 0.917, 0.54, 0.409, 0.418, -0.529, -1.083, -1.014, -1.802, -1.496], "from": "2025-10", "to": "2026-10", "model": {"code": "NKTR", "name": "Nektar Therapeutics", "times": 7.09, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [1.318, 0.724, 0.622, 0.953, 0.758, 0.824, 0.447, 0.264, -0.603, -1.088, -1.037, -1.937, -1.245]}}, {"code": "TIGO", "name": "Millicom International Cellular S.A.", "sim": 0.991, "price": 79.57, "rise": 0.689, "shape": [-1.972, -1.446, -1.254, -0.83, -0.048, 0.075, 0.624, 0.649, 0.919, 1.143, 1.062, 0.74, 0.339], "from": "2025-10", "to": "2026-10", "model": {"code": "LNTH", "name": "Lantheus Holdings, Inc.", "times": 3.16, "from": "2020-10", "start": "2021-10", "end": "2022-10", "shape": [-2.045, -1.402, -1.319, -0.692, -0.23, 0.22, 0.566, 0.643, 1.081, 0.898, 0.923, 0.835, 0.522]}}, {"code": "BSX", "name": "Boston Scientific Corporation", "sim": 0.991, "price": 41.98, "rise": -0.5831, "shape": [1.408, 1.435, 1.248, 1.191, 0.614, 0.018, -0.233, -0.751, -1.115, -0.849, -0.752, -1.049, -1.164], "from": "2025-10", "to": "2026-10", "model": {"code": "HAPN", "name": "Happen, Inc.", "times": 9.84, "from": "2019-10", "start": "2020-10", "end": "2021-10", "shape": [1.223, 1.433, 1.22, 1.044, 0.896, 0.095, 0.04, -0.813, -1.197, -0.871, -0.822, -1.115, -1.135]}}, {"code": "XYL", "name": "Xylem Inc.", "sim": 0.99, "price": 92.4, "rise": -0.3877, "shape": [1.676, 1.153, 0.91, 1.003, 0.539, -0.067, -0.149, -0.72, -0.149, -0.225, -0.68, -1.302, -1.989], "from": "2025-10", "to": "2026-10", "model": {"code": "CLSK", "name": "CleanSpark, Inc.", "times": 20.14, "from": "2019-03", "start": "2020-03", "end": "2021-03", "shape": [1.59, 1.09, 1.028, 0.93, 0.455, 0.229, 0.052, -0.717, -0.258, -0.453, -0.606, -1.24, -2.1]}}, {"code": "VTRS", "name": "Viatris Inc.", "sim": 0.985, "price": 19.04, "rise": 0.8378, "shape": [-1.877, -1.705, -0.872, -0.598, 0.121, -0.425, 0.125, 0.587, 0.458, 1.008, 0.671, 1.057, 1.45], "from": "2025-10", "to": "2026-10", "model": {"code": "FTAI", "name": "FTAI Aviation Ltd.", "times": 4.1, "from": "2022-11", "start": "2023-11", "end": "2024-11", "shape": [-1.811, -1.898, -0.897, -0.439, -0.06, 0.005, -0.048, 0.406, 0.47, 0.986, 0.84, 1.051, 1.394]}}, {"code": "PEB", "name": "Pebblebrook Hotel Trust", "sim": 0.985, "price": 21.54, "rise": 1.0593, "shape": [-1.401, -1.066, -1.073, -1.036, -0.553, -0.619, -0.176, 0.164, 1.164, 1.098, 0.879, 1.023, 1.597], "from": "2025-10", "to": "2026-10", "model": {"code": "NET", "name": "Cloudflare, Inc.", "times": 3.75, "from": "2019-10", "start": "2020-10", "end": "2021-10", "shape": [-1.273, -0.882, -1.238, -1.115, -0.643, -0.381, -0.372, 0.192, 0.762, 1.155, 0.929, 1.118, 1.75]}}, {"code": "XPEV", "name": "XPeng Inc.", "sim": 0.985, "price": 9.04, "rise": -0.6152, "shape": [1.477, 1.224, 0.97, 0.554, 0.473, 0.383, 0.216, 0.247, -0.502, -0.565, -1.031, -1.627, -1.82], "from": "2025-10", "to": "2026-10", "model": {"code": "NUTX", "name": "Nutex Health Inc.", "times": 24.55, "from": "2023-05", "start": "2024-05", "end": "2025-05", "shape": [1.285, 1.244, 1.231, 0.679, 0.261, 0.288, 0.173, 0.1, -0.337, -0.525, -0.744, -1.909, -1.746]}}, {"code": "TME", "name": "Tencent Music Entertainment Group", "sim": 0.984, "price": 8.41, "rise": -0.6232, "shape": [1.853, 1.322, 1.179, 1.057, 0.669, -0.594, -0.627, -0.612, -0.888, -0.543, -0.915, -1.032, -0.868], "from": "2025-10", "to": "2026-10", "model": {"code": "PARR", "name": "Par Pacific Holdings, Inc.", "times": 4.59, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [1.784, 1.307, 1.034, 1.224, 0.59, -0.327, -0.818, -0.363, -0.595, -0.52, -1.091, -1.12, -1.104]}}, {"code": "ETON", "name": "Eton Pharmaceuticals, Inc.", "sim": 0.984, "price": 52.18, "rise": 1.8973, "shape": [-0.895, -1.118, -1.024, -1.268, -1.014, -0.251, -0.298, 0.179, 0.533, 1.041, 1.581, 1.253, 1.281], "from": "2025-10", "to": "2026-10", "model": {"code": "TLN", "name": "Talen Energy Corporation", "times": 3.03, "from": "2023-07", "start": "2024-07", "end": "2025-07", "shape": [-1.023, -0.964, -1.103, -1.098, -0.846, -0.497, -0.382, -0.001, 0.738, 0.923, 1.373, 1.255, 1.625]}}, {"code": "GSAT", "name": "Globalstar, Inc.", "sim": 0.983, "price": 82.3, "rise": 0.5126, "shape": [-1.771, -1.067, -1.036, -0.976, -0.909, -0.496, 0.874, 1.02, 0.795, 0.957, 0.815, 0.919, 0.874], "from": "2025-10", "to": "2026-10", "model": {"code": "AGX", "name": "Argan, Inc.", "times": 4.38, "from": "2024-04", "start": "2025-04", "end": "2026-04", "shape": [-1.74, -1.246, -1.137, -0.901, -0.886, -0.122, 0.698, 1.215, 0.813, 0.809, 0.66, 0.679, 1.159]}}, {"code": "OLLI", "name": "Ollie's Bargain Outlet Holdings, Inc.", "sim": 0.982, "price": 90.26, "rise": -0.2528, "shape": [1.488, 1.597, 0.925, 0.962, 0.791, -0.085, -0.444, -0.78, -1.126, -1.389, -1.237, -0.502, -0.198], "from": "2025-10", "to": "2026-10", "model": {"code": "IMVT", "name": "Immunovant, Inc.", "times": 6.88, "from": "2021-09", "start": "2022-09", "end": "2023-09", "shape": [1.458, 1.175, 1.017, 1.386, 0.665, -0.157, -0.203, -0.853, -1.158, -1.463, -1.263, -0.449, -0.157]}}, {"code": "ROL", "name": "Rollins, Inc.", "sim": 0.981, "price": 34.66, "rise": -0.3984, "shape": [0.751, 1.014, 0.917, 1.135, 0.975, 0.444, 0.616, -0.023, -0.556, -0.939, -1.147, -1.878, -1.309], "from": "2025-10", "to": "2026-10", "model": {"code": "PLSE", "name": "Pulse Biosciences, Inc.", "times": 5.06, "from": "2021-07", "start": "2022-07", "end": "2023-07", "shape": [0.94, 1.162, 0.989, 0.967, 0.93, 0.631, 0.444, -0.384, -0.426, -1.057, -1.166, -1.523, -1.505]}}, {"code": "RTO", "name": "Rentokil Initial plc", "sim": 0.981, "price": 23.32, "rise": -0.1618, "shape": [0.066, 0.026, 0.446, 0.892, 0.843, 0.886, 1.371, 0.591, 0.252, -1.092, -0.971, -2.205, -1.103], "from": "2025-10", "to": "2026-10", "model": {"code": "KTB", "name": "Kontoor Brands, Inc.", "times": 3.17, "from": "2019-06", "start": "2020-06", "end": "2021-06", "shape": [-0.016, 0.121, 0.585, 0.659, 0.897, 0.722, 1.196, 0.908, 0.541, -1.154, -1.117, -1.966, -1.375]}}, {"code": "DNTH", "name": "Dianthus Therapeutics, Inc.", "sim": 0.981, "price": 82.38, "rise": 1.3551, "shape": [-1.87, -1.257, -1.431, -0.737, -0.648, 0.475, 0.596, 0.751, 0.877, 1.124, 1.091, 0.604, 0.425], "from": "2025-10", "to": "2026-10", "model": {"code": "LNTH", "name": "Lantheus Holdings, Inc.", "times": 3.16, "from": "2020-10", "start": "2021-10", "end": "2022-10", "shape": [-2.045, -1.402, -1.319, -0.692, -0.23, 0.22, 0.566, 0.643, 1.081, 0.898, 0.923, 0.835, 0.522]}}, {"code": "HTO", "name": "H2O America", "sim": 0.98, "price": 59.74, "rise": 0.2917, "shape": [-1.761, -1.724, -1.212, -0.636, -0.32, 0.508, 0.096, 0.371, 0.844, 0.931, 1.244, 0.978, 0.681], "from": "2025-10", "to": "2026-10", "model": {"code": "FRHC", "name": "Freedom Holdings Corp.", "times": 3.76, "from": "2019-03", "start": "2020-03", "end": "2021-03", "shape": [-1.653, -1.547, -1.324, -0.522, -0.535, 0.104, -0.119, 0.577, 0.943, 0.892, 1.107, 1.301, 0.776]}}, {"code": "MATX", "name": "Matson, Inc.", "sim": 0.98, "price": 223.9, "rise": 1.219, "shape": [-1.986, -1.683, -1.19, -0.169, -0.029, -0.082, 0.162, 0.314, 0.544, 0.75, 1.159, 1.067, 1.143], "from": "2025-10", "to": "2026-10", "model": {"code": "FTAI", "name": "FTAI Aviation Ltd.", "times": 4.1, "from": "2022-11", "start": "2023-11", "end": "2024-11", "shape": [-1.811, -1.898, -0.897, -0.439, -0.06, 0.005, -0.048, 0.406, 0.47, 0.986, 0.84, 1.051, 1.394]}}, {"code": "ERAS", "name": "Erasca, Inc.", "sim": 0.979, "price": 14.35, "rise": 4.9298, "shape": [-2.095, -1.699, -1.464, 0.059, 0.443, 0.692, 0.078, 0.352, 0.874, 0.86, 0.838, 0.547, 0.516], "from": "2025-10", "to": "2026-10", "model": {"code": "TRVI", "name": "Trevi Therapeutics, Inc.", "times": 4.58, "from": "2023-11", "start": "2024-11", "end": "2025-11", "shape": [-2.145, -1.672, -1.515, 0.437, 0.888, 0.446, 0.091, 0.492, 0.668, 0.651, 0.8, 0.46, 0.399]}}, {"code": "PK", "name": "Park Hotels & Resorts Inc.", "sim": 0.978, "price": 16.6, "rise": 0.6132, "shape": [-1.136, -0.84, -1.04, -0.78, -0.579, -1.0, -0.496, -0.166, 0.785, 1.111, 1.204, 1.25, 1.686], "from": "2025-10", "to": "2026-10", "model": {"code": "TLN", "name": "Talen Energy Corporation", "times": 3.03, "from": "2023-07", "start": "2024-07", "end": "2025-07", "shape": [-1.023, -0.964, -1.103, -1.098, -0.846, -0.497, -0.382, -0.001, 0.738, 0.923, 1.373, 1.255, 1.625]}}, {"code": "DCO", "name": "Ducommun Incorporated", "sim": 0.978, "price": 160.3, "rise": 0.7471, "shape": [-1.526, -1.528, -1.381, -0.681, -0.332, -0.384, 0.221, 0.502, 1.288, 1.152, 0.978, 0.98, 0.71], "from": "2025-10", "to": "2026-10", "model": {"code": "GNRC", "name": "Generac Holdings Inc.", "times": 3.52, "from": "2019-03", "start": "2020-03", "end": "2021-03", "shape": [-1.746, -1.459, -1.447, -0.515, -0.35, -0.043, -0.025, 0.824, 0.903, 0.989, 1.108, 1.084, 0.678]}}, {"code": "MSGK", "name": "MSG Knickerbockers Corp.", "sim": 0.978, "price": 312.9, "rise": 0.9387, "shape": [-1.957, -1.672, -1.09, -0.667, 0.055, -0.089, 0.204, 0.613, 0.941, 0.846, 0.741, 0.979, 1.096], "from": "2025-10", "to": "2026-10", "model": {"code": "APP", "name": "AppLovin Corporation", "times": 8.99, "from": "2023-01", "start": "2024-01", "end": "2025-01", "shape": [-1.704, -1.564, -1.211, -1.037, -0.154, -0.089, 0.367, 1.098, 0.918, 0.707, 0.772, 0.912, 0.984]}}], "check": {"months": 63, "double": 0.1071, "double_all": 0.0581, "half": 0.0706, "half_all": 0.0402, "median": 0.1348, "median_all": 0.0826}, "models": 506, "universe": 1999}}};
+const LABEL = {jp: "日本株", us: "米国株"};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
+let market = "us";
+
+// 今の形（太い線）と、手本の上がる前の形（点線）を重ねる。どちらも値段の高さ・振れ幅をそろえてある
+function overlay(a, b) {
+  const W = 300, H = 110, P = 8;
+  const all = [...a, ...b], lo = Math.min(...all), hi = Math.max(...all);
+  const x = i => P + (W - 2 * P) * i / (a.length - 1);
+  const y = v => P + (H - 2 * P) * (1 - (v - lo) / (hi - lo || 1));
+  const path = s => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="形のくらべ">
+    <path d="${path(b)}" fill="none" stroke="var(--model)" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="${path(a)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/></svg>`;
+}
+
+function link(m, code) {
+  return m === "jp" ? `https://kabutan.jp/stock/chart?code=${code}` : `https://us.kabutan.jp/stocks/${code}/chart`;
+}
+
+function render() {
+  document.querySelectorAll("[data-market]").forEach(b => b.setAttribute("aria-selected", b.dataset.market === market));
+  const d = DATA.markets[market];
+  document.getElementById("sub").textContent =
+    `過去に1年で${DATA.surge}倍以上になった銘柄の「上がる前の${DATA.shape}か月の形」に、今の形がそっくりな銘柄（${DATA.built} 時点）`;
+  const c = d.check;
+  document.getElementById("how").textContent =
+    `${LABEL[market]}の手本は ${d.models} 個。過去の${c.months}か月で、毎月その時点までに分かった手本だけを使って似ている上位20銘柄を選んだとすると、その後1年で:`;
+  document.getElementById("facts").innerHTML = [
+    ["2倍以上になった割合", c.double, c.double_all],
+    ["半分以下になった割合", c.half, c.half_all],
+    ["上がり方の真ん中", c.median, c.median_all],
+  ].map(([label, v, all]) => `<div class="fact"><span>${label}</span><b>${label.includes("真ん中") ? pct(v) : (v * 100).toFixed(1) + "%"}</b>
+    <span>全体は ${label.includes("真ん中") ? pct(all) : (all * 100).toFixed(1) + "%"}</span></div>`).join("");
+  const odds = c.double / c.double_all;
+  document.getElementById("verdict").textContent = odds >= 1.5
+    ? `大当たり（2倍以上）は全体の約${odds.toFixed(1)}倍出やすい一方、大はずれ（半分以下）も出やすい。当たりもはずれも大きい「くじ」です。`
+    : `全体と大きな差はありません。形だけで当てるのは難しい市場です。遊びとしてどうぞ。`;
+  document.getElementById("picks").innerHTML = d.picks.map(p => `
+    <article class="card pick">
+      <h3><span><a href="${link(market, p.code)}" target="_blank" rel="noopener">${esc(p.code)}</a> ${esc(p.name)}</span>
+        <span class="num">似ている度 ${Math.round(p.sim * 100)}%</span></h3>
+      <p class="meta">株価 <span class="num">${market === "us" ? "$" : ""}${p.price.toLocaleString()}</span>・この1年 <span class="num ${p.rise >= 0 ? "pos" : "neg"}">${pct(p.rise)}</span></p>
+      ${overlay(p.shape, p.model.shape)}
+      <div class="legend"><span><i style="border-color:var(--accent)"></i>今（${p.from}〜${p.to}）</span>
+        <span><i style="border-color:var(--model);border-top-style:dashed"></i>手本（${p.model.from}〜${p.model.start}）</span></div>
+      <p class="model">手本: <a href="${link(market, p.model.code)}" target="_blank" rel="noopener">${esc(p.model.code)}</a> ${esc(p.model.name)} は、この形のあと1年で <b class="num pos">${p.model.times}倍</b></p>
+    </article>`).join("");
+}
+
+document.querySelectorAll("[data-market]").forEach(b => b.addEventListener("click", () => { market = b.dataset.market; render(); }));
+render();
+</script>
+</body>
+</html>
